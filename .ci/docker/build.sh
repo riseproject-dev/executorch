@@ -49,6 +49,10 @@ case "${IMAGE_NAME}" in
     ARM_SDK=yes
     GCC_VERSION=11
     ;;
+  executorch-ubuntu-24.04-gcc14-riscv64)
+    LINTRUNNER=""
+    GCC_VERSION=14
+    ;;
   executorch-ubuntu-22.04-linter)
     LINTRUNNER=yes
     CLANG_VERSION=12
