@@ -3,12 +3,11 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""AOT export for the RISC-V smoke tests.
+"""AOT export for the RISC-V smoke test.
 
-Exports the model selected by ``--model`` to a BundledProgram (.bpte) that
-either ``executor_runner`` (linux) or ``executor_runner_baremetal`` (qemu
-virt + semihosting) consumes. The bundled-IO comparison path inside the
-runner emits ``Test_result: PASS`` per testset, which is what run.sh greps.
+Exports a small model to a BundledProgram (.bpte) that the portable
+executor_runner can load on a riscv64 target and verify against the embedded
+reference output, emitting ``Test_result: PASS`` on success.
 """
 
 import argparse
@@ -173,10 +172,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=("portable", "xnnpack"),
+        choices=("portable", "xnnpack", "riscv"),
         default="portable",
-        help="AOT backend: 'portable' runs everything on the portable kernels, "
-        "'xnnpack' adds the XNNPACK partitioner (default: portable)",
+        help="Which backend to lower to: 'portable' runs everything on the "
+        "portable kernels, 'xnnpack' adds the XNNPACK partitioner, 'riscv' "
+        "runs the ConvertToRiscvPass so supported ops dispatch to the "
+        "kernel-library backend (default: portable)",
     )
     parser.add_argument(
         "--os",
@@ -201,7 +202,7 @@ def main() -> None:
     if args.debug_xnnpack and args.backend != "xnnpack":
         parser.error("--debug-xnnpack requires --backend=xnnpack")
 
-    # xnnpack pulls in pthreads + dynamic loading; baremetal runner doesn't have those.
+    # xnnpack pulls in pthreads + dynamic loading; baremetal runner has neither.
     if args.os == "baremetal" and args.backend == "xnnpack":
         parser.error("--backend=xnnpack is not supported on --os=baremetal")
 
@@ -240,9 +241,16 @@ def main() -> None:
 
         compile_config = EdgeCompileConfig(_check_ir_validity=False)
 
+    transform_passes = None
+    if args.backend == "riscv":
+        from executorch.backends.riscv import ConvertToRiscvPass
+
+        transform_passes = [ConvertToRiscvPass()]
+
     edge = to_edge_transform_and_lower(
         exported,
         partitioner=partitioners,
+        transform_passes=transform_passes,
         compile_config=compile_config,
     )
     delegated = sum(

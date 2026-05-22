@@ -25,6 +25,7 @@ qemu_cpu_ext=""
 quantize=false
 debug_xnnpack=false
 verbose_xnnpack=false
+riscv_kernels="all"
 qemu_override=""
 
 usage() {
@@ -36,6 +37,9 @@ Options:
   --backend=<NAME>        AOT backend (default: ${backend}):
                            - 'portable': portable kernels only
                            - 'xnnpack':  XNNPACK delegate (linux only)
+                           - 'riscv':    kernel-library backend; ConvertToRiscvPass
+                                         rewrites supported ops to riscv::* at AOT,
+                                         runtime picks scalar/RVV at dispatch time
   --os=<NAME>             Target OS (default: ${os}):
                            - 'linux':    glibc, qemu-user
                            - 'baremetal': no OS, qemu-system + semihosting
@@ -46,6 +50,9 @@ Options:
                           (e.g. 'v=true,vlen=128'); no rv32/rv64 prefix.
   --verbose-xnnpack       Build XNNPACK with XNN_LOG_LEVEL=4 to log microkernel dispatch
   --debug-xnnpack         Enable XNNPACK partitioner DEBUG logging and dump the lowered graph
+  --riscv-kernels=<LIST>  Semicolon list of kernel variants to compile in, or 'all'
+                          (currently 'scalar', 'rvv'). Passed as
+                          -DEXECUTORCH_RISCV_KERNELS (default: ${riscv_kernels})
   --build_only            Only export and cross-compile; do not invoke QEMU
   --build-dir=<DIR>       Build/output directory for this configuration (required)
   --qemu=<BIN>            Override qemu binary
@@ -64,6 +71,7 @@ for arg in "$@"; do
         --qemu-cpu-ext=*) qemu_cpu_ext="${arg#*=}" ;;
         --debug-xnnpack) debug_xnnpack=true ;;
         --verbose-xnnpack) verbose_xnnpack=true ;;
+        --riscv-kernels=*) riscv_kernels="${arg#*=}" ;;
         --build_only) build_only=true ;;
         --build-dir=*) build_dir="${arg#*=}" ;;
         --qemu=*) qemu_override="${arg#*=}" ;;
@@ -74,7 +82,7 @@ for arg in "$@"; do
 done
 
 case "${backend}" in
-    portable|xnnpack) ;;
+    portable|xnnpack|riscv) ;;
     *) echo "Unknown backend: ${backend}" >&2; usage; exit 1 ;;
 esac
 case "${os}" in
@@ -136,6 +144,9 @@ if [[ "${backend}" == "xnnpack" ]]; then
 fi
 if ${verbose_xnnpack}; then
     cmake_extra_args+=(-DEXECUTORCH_XNNPACK_LOG_LEVEL=4 -DEXECUTORCH_BUILD_RISCV_ETDUMP=ON)
+fi
+if [[ "${backend}" == "riscv" ]]; then
+    cmake_extra_args+=(-DEXECUTORCH_BUILD_RISCV=ON -DEXECUTORCH_RISCV_KERNELS="${riscv_kernels}")
 fi
 
 # Map our short arch (rv32/rv64) to the canonical riscv32/riscv64 prefix used

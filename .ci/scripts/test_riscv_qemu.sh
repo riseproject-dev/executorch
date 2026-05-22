@@ -29,7 +29,7 @@ Usage: $(basename "$0") [options]
 Options:
   --model=<NAME>          Which model to export and run (default: ${model})
   --quantize              Produce an 8-bit quantized model
-  --backend=<NAME>        AOT backend (portable|xnnpack) (default: ${backend})
+  --backend=<NAME>        AOT backend (portable|xnnpack|riscv) (default: ${backend})
   --os=<NAME>             Target OS (linux|baremetal) (default: ${os})
   --arch=<NAME>           Target arch (rv32|rv64) (default: ${arch})
   --qemu-cpu-ext=<EXT>    QEMU -cpu extensions (no rv32/rv64 prefix, default: none)

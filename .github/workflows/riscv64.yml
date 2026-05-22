@@ -37,7 +37,7 @@ jobs:
           - resnet18
           - yolo26
         quantize: [true, false]
-        backend: [portable, xnnpack]
+        backend: [portable, xnnpack, riscv]
         os: [linux, baremetal]
         arch: [rv64, rv32]
         exclude:
@@ -49,6 +49,12 @@ jobs:
           - { model: yolo26, quantize: true }
           # No riscv32-linux-gnu cross is packaged on Ubuntu.
           - { os: linux, arch: rv32 }
+          # riscv backend is currently 'add'-only; other models have no ConvertToRiscvPass coverage.
+          - { backend: riscv, model: mv2 }
+          - { backend: riscv, model: mobilebert }
+          - { backend: riscv, model: llama2 }
+          - { backend: riscv, model: resnet18 }
+          - { backend: riscv, model: yolo26 }
     permissions:
       id-token: write
       contents: read
@@ -60,9 +66,10 @@ jobs:
       arch: ${{ matrix.arch }}
       timeout: ${{ matrix.os == 'baremetal' && 60 || 30 }}
       # JSON array of QEMU -cpu *extension* strings (no rv32/rv64 prefix - that
-      # comes from `arch`). The script splices them as `<arch>,<ext>`. xnnpack
-      # benefits from RVV so it sweeps multiple vlen; everything else just uses
-      # the plain base ISA.
+      # comes from `arch`). The script splices them as `<arch>,<ext>`.
+      # xnnpack: RVV-only sweep across vlen.
+      # riscv: scalar + RVV (covers both runtime-dispatch paths in the kernel lib).
+      # portable: plain base ISA.
       qemu-cpu-ext: >-
         ${{
           case(

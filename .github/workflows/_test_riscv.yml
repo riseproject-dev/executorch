@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       backend:
-        description: 'AOT backend to lower to (portable|xnnpack)'
+        description: 'AOT backend to lower to (portable|xnnpack|riscv)'
         required: false
         type: string
         default: 'portable'

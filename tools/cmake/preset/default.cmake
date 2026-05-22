@@ -185,6 +185,9 @@ define_overridable_option(
   EXECUTORCH_BUILD_CORTEX_M "Build the Cortex-M backend" BOOL OFF
 )
 define_overridable_option(
+  EXECUTORCH_BUILD_RISCV "Build the RISC-V kernel-library backend" BOOL OFF
+)
+define_overridable_option(
   EXECUTORCH_BUILD_CUDA "Build the CUDA backend" BOOL OFF
 )
 define_overridable_option(

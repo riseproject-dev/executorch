@@ -755,6 +755,11 @@ if(EXECUTORCH_BUILD_CORTEX_M)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backends/cortex_m)
 endif()
 
+if(EXECUTORCH_BUILD_RISCV)
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backends/riscv)
+  list(APPEND _executorch_backends riscv_ops_lib)
+endif()
+
 # If CUDA, Metal, or pybind will need Torch, find it at root scope first so that
 # imported targets (e.g. MKL::MKL) aren't created in child directory scopes and
 # then duplicated when found again at root scope.

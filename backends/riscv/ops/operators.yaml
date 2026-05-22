@@ -1,0 +1,10 @@
+# Copyright 2026 The ExecuTorch Authors.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+- func: riscv::add.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::add_out
