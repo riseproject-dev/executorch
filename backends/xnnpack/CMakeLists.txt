@@ -35,6 +35,12 @@ if(EXECUTORCH_XNNPACK_ENABLE_KLEIDI)
   add_definitions(-DENABLE_XNNPACK_KLEIDI)
 endif()
 
+# XNN_ENABLE_UKERNEL_TIMING changes the layout of several compute contexts,
+# so propagate it to every XNNPACK TU pulled in below.
+if(EXECUTORCH_XNNPACK_ENABLE_UKERNEL_TIMING)
+  add_definitions(-DXNN_ENABLE_UKERNEL_TIMING=1)
+endif()
+
 set(_common_compile_options
     $<$<CXX_COMPILER_ID:MSVC>:/wd4996>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-deprecated-declarations -fPIC>

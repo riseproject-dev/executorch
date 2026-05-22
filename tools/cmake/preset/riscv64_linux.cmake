@@ -18,6 +18,8 @@ if("${EXECUTORCH_BUILD_RISCV_ETDUMP}")
   set(EXECUTORCH_BUILD_DEVTOOLS ON)
   set(EXECUTORCH_ENABLE_EVENT_TRACER ON)
   set(FLATCC_ALLOW_WERROR OFF)
+  # ETDump captures the symbol; ukernel timing makes the symbol meaningful.
+  set(EXECUTORCH_XNNPACK_ENABLE_UKERNEL_TIMING ON)
 else()
   set(EXECUTORCH_ENABLE_EVENT_TRACER OFF)
 endif()

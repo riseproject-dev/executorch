@@ -12,6 +12,7 @@
 #include <executorch/runtime/core/event_tracer_hooks_delegate.h>
 
 #include <xnnpack.h>
+#include <string>
 #include <vector>
 
 namespace executorch {
@@ -54,7 +55,9 @@ class XNNProfiler {
 
   size_t op_count_;
   std::vector<char> op_names_;
+  std::vector<char> microkernel_names_;
   std::vector<uint64_t> op_timings_;
+  std::vector<uint64_t> microkernel_timings_;
   uint64_t run_count_;
   et_timestamp_t start_time_;
 
@@ -66,8 +69,10 @@ class XNNProfiler {
 #endif
 
   executorch::runtime::Error get_runtime_operator_names();
+  executorch::runtime::Error get_runtime_microkernel_names();
   executorch::runtime::Error get_runtime_num_operators();
   executorch::runtime::Error get_runtime_operator_timings();
+  executorch::runtime::Error get_runtime_microkernel_timings();
 
   void log_operator_timings();
 

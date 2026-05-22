@@ -44,6 +44,29 @@ Error XNNProfiler::initialize(xnn_runtime_t runtime) {
   return Error::Ok;
 }
 
+// Two-pass query helper: probe size then fill the buffer.
+static Error query_runtime_string_array(
+    xnn_runtime_t runtime,
+    xnn_profile_info param,
+    std::vector<char>& out) {
+  size_t required_size = 0;
+  xnn_status status = xnn_get_runtime_profiling_info(
+      runtime, param, 0, nullptr, &required_size);
+  if (status == xnn_status_out_of_memory) {
+    out.resize(required_size);
+    status = xnn_get_runtime_profiling_info(
+        runtime, param, out.size(), out.data(), &required_size);
+  } else if (status == xnn_status_success && required_size == 0) {
+    // Nothing to fetch (no valid operators); leave `out` empty.
+    out.clear();
+  }
+  if (status != xnn_status_success) {
+    ET_LOG(Error, "XNNPACK profiling query %d failed: %d", (int)param, status);
+    return Error::Internal;
+  }
+  return Error::Ok;
+}
+
 Error XNNProfiler::start(EventTracer* event_tracer) {
   // Validate profiler state.
   if (state_ == XNNProfilerState::Uninitialized) {
@@ -77,6 +100,14 @@ Error XNNProfiler::end() {
   // Retrieve operator timing from XNNPACK.
   ET_CHECK_OK_OR_RETURN_ERROR(get_runtime_operator_timings());
 
+  // Best-effort: an XNNPACK that doesn't know these enums leaves them empty.
+  if (get_runtime_microkernel_names() != Error::Ok) {
+    microkernel_names_.clear();
+  }
+  if (get_runtime_microkernel_timings() != Error::Ok) {
+    microkernel_timings_.clear();
+  }
+
   if (event_tracer_ != nullptr) {
     submit_trace();
   }
@@ -88,34 +119,13 @@ Error XNNProfiler::end() {
 }
 
 Error XNNProfiler::get_runtime_operator_names() {
-  size_t required_size = 0;
+  return query_runtime_string_array(
+      runtime_, xnn_profile_info_operator_name, op_names_);
+}
 
-  // First call returns xnn_status_out_of_memory, but sets required_size to
-  // the correct size of the buffer to store the result.
-  xnn_status status = xnn_get_runtime_profiling_info(
-      runtime_, // runtime
-      xnn_profile_info_operator_name, // param_name
-      0, // param_value_size
-      nullptr, // param_value
-      &required_size // param_value_size_ret
-  );
-
-  if (status == xnn_status_out_of_memory) {
-    op_names_.resize(required_size);
-    status = xnn_get_runtime_profiling_info(
-        runtime_,
-        xnn_profile_info_operator_name,
-        op_names_.size(),
-        op_names_.data(),
-        &required_size);
-  }
-
-  if (status != xnn_status_success) {
-    ET_LOG(Error, "Failed to get XNNPACK operator names: %d", status);
-    return Error::Internal;
-  }
-
-  return Error::Ok;
+Error XNNProfiler::get_runtime_microkernel_names() {
+  return query_runtime_string_array(
+      runtime_, xnn_profile_info_microkernel_name, microkernel_names_);
 }
 
 Error XNNProfiler::get_runtime_num_operators() {
@@ -136,24 +146,37 @@ Error XNNProfiler::get_runtime_num_operators() {
   return Error::Ok;
 }
 
-Error XNNProfiler::get_runtime_operator_timings() {
-  size_t required_size;
-
-  // Get number of runtime operators for timing_stats.size
-  op_timings_.resize(op_count_);
+static Error query_runtime_uint64_array(
+    xnn_runtime_t runtime,
+    xnn_profile_info param,
+    std::vector<uint64_t>& out,
+    size_t op_count) {
+  size_t required_size = 0;
+  out.resize(op_count);
   xnn_status status = xnn_get_runtime_profiling_info(
-      runtime_,
-      xnn_profile_info_operator_timing,
-      op_timings_.size() * sizeof(uint64_t),
-      op_timings_.data(),
+      runtime,
+      param,
+      out.size() * sizeof(uint64_t),
+      out.data(),
       &required_size);
-
   if (status != xnn_status_success) {
-    ET_LOG(Error, "Failed to get XNNPACK operator timing: %d", status);
+    ET_LOG(Error, "XNNPACK profiling query %d failed: %d", (int)param, status);
     return Error::Internal;
   }
-
   return Error::Ok;
+}
+
+Error XNNProfiler::get_runtime_operator_timings() {
+  return query_runtime_uint64_array(
+      runtime_, xnn_profile_info_operator_timing, op_timings_, op_count_);
+}
+
+Error XNNProfiler::get_runtime_microkernel_timings() {
+  return query_runtime_uint64_array(
+      runtime_,
+      xnn_profile_info_microkernel_timing,
+      microkernel_timings_,
+      op_count_);
 }
 
 void XNNProfiler::log_operator_timings() {
@@ -191,12 +214,24 @@ void XNNProfiler::submit_trace() {
 
   ET_CHECK(op_timings_.size() == op_count_);
   size_t name_len = 0;
+  size_t microkernel_name_len = 0;
   et_timestamp_t time = start_time_;
   std::unordered_map<std::string, uint32_t> op_counts;
+
+  const bool have_microkernel_names = !microkernel_names_.empty();
+  const bool have_microkernel_timings = microkernel_timings_.size() == op_count_;
 
   for (auto i = 0u; i < op_count_; i++) {
     auto op_name = &op_names_[name_len];
     name_len += strlen(op_name) + 1;
+
+    // Walk the parallel NUL-separated microkernel-name array.
+    const char* microkernel_name = "";
+    if (have_microkernel_names &&
+        microkernel_name_len < microkernel_names_.size()) {
+      microkernel_name = &microkernel_names_[microkernel_name_len];
+      microkernel_name_len += strlen(microkernel_name) + 1;
+    }
 
     // Format the op name as {name} #{count}.
     auto op_name_str = std::string(op_name);
@@ -214,12 +249,24 @@ void XNNProfiler::submit_trace() {
 
     auto end_time = time + interval_ticks;
 
+    // Pack metadata as <symbol>\0<microkernel us> for etdump_summary.py.
+    std::string metadata;
+    if (microkernel_name[0] != '\0' ||
+        (have_microkernel_timings && microkernel_timings_[i] != 0)) {
+      metadata.assign(microkernel_name);
+      metadata.push_back('\0');
+      if (have_microkernel_timings) {
+        metadata.append(std::to_string(microkernel_timings_[i]));
+      }
+    }
     executorch::runtime::event_tracer_log_profiling_delegate(
         event_tracer_,
         name_formatted.c_str(),
         /*delegate_debug_id=*/static_cast<executorch::runtime::DebugHandle>(-1),
         time,
-        end_time);
+        end_time,
+        metadata.empty() ? nullptr : metadata.data(),
+        metadata.size());
 
     // Assume that the next op starts immediately after the previous op.
     // This may not be strictly true, but it should be close enough.

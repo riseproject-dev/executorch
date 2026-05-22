@@ -1148,6 +1148,7 @@ def define_xnnpack():
         name = "XNNPACK",
         srcs = get_ukernel_config_srcs() + LOGGING_SRCS + [
             "XNNPACK/src/init.c",
+            "XNNPACK/src/microkernel-name-registry.c",
             "XNNPACK/src/params.c",
             "XNNPACK/src/configs/hardware-config.c",
             "XNNPACK/src/microparams-init.c",
