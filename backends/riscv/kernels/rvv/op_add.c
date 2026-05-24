@@ -35,12 +35,6 @@ void riscv_add_f32_rvv(
   }
 }
 
-/* int8 -> int16 -> int32 -> fp32 widen chain so the zero-point subtract
- * doesn't overflow, then two vfmacc.vf with the precomputed scale
- * ratios, vfcvt back to int32 (RNE), add out_zp, clamp, narrow back to
- * int8. LMUL=2 on the int8 side maps to LMUL=8 on the fp32 intermediate
- * which keeps register pressure manageable across the full chain. */
-
 void riscv_add_int8_rvv(
     const int8_t* a,
     const int8_t* b,
@@ -60,10 +54,8 @@ void riscv_add_int8_rvv(
     size_t vl = __riscv_vsetvl_e8m2(n);
     vint8m2_t va_i8 = __riscv_vle8_v_i8m2(a, vl);
     vint8m2_t vb_i8 = __riscv_vle8_v_i8m2(b, vl);
-    vint16m4_t va_i16 = __riscv_vsext_vf2_i16m4(va_i8, vl);
-    vint16m4_t vb_i16 = __riscv_vsext_vf2_i16m4(vb_i8, vl);
-    vint32m8_t va_i32 = __riscv_vsext_vf2_i32m8(va_i16, vl);
-    vint32m8_t vb_i32 = __riscv_vsext_vf2_i32m8(vb_i16, vl);
+    vint32m8_t va_i32 = __riscv_vsext_vf4_i32m8(va_i8, vl);
+    vint32m8_t vb_i32 = __riscv_vsext_vf4_i32m8(vb_i8, vl);
     va_i32 = __riscv_vsub_vx_i32m8(va_i32, a_zero_point, vl);
     vb_i32 = __riscv_vsub_vx_i32m8(vb_i32, b_zero_point, vl);
     vfloat32m8_t va_f = __riscv_vfcvt_f_x_v_f32m8(va_i32, vl);
@@ -74,6 +66,7 @@ void riscv_add_int8_rvv(
     qi = __riscv_vadd_vx_i32m8(qi, out_zero_point, vl);
     qi = __riscv_vmax_vx_i32m8(qi, out_quant_min, vl);
     qi = __riscv_vmin_vx_i32m8(qi, out_quant_max, vl);
+    /* vncvt is vf2 only; two narrow steps i32 -> i16 -> i8. */
     vint16m4_t qi_16 = __riscv_vncvt_x_x_w_i16m4(qi, vl);
     vint8m2_t qi_8 = __riscv_vncvt_x_x_w_i8m2(qi_16, vl);
     __riscv_vse8_v_i8m2(out, qi_8, vl);
