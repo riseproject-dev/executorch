@@ -134,6 +134,25 @@ RISCV_DECLARE_KERNEL(
      size_t dilation_h,
      size_t dilation_w))
 
+/* out[b, m, n] = sum_k a[b, m, k] * b_in[b, k, n]. Contiguous bmm only;
+ * broadcast over the batch dim is handled in the C++ glue. */
+RISCV_DECLARE_KERNEL(
+    bmm_f32,
+    (const float* a,
+     const float* b,
+     float* out,
+     size_t B,
+     size_t M,
+     size_t N,
+     size_t K))
+
+/* In-place softmax over the trailing `inner` floats of every `outer` row,
+ * numerically stable (subtract max, then exp + normalize). Used for the
+ * attention rows in mobilebert / llama2. */
+RISCV_DECLARE_KERNEL(
+    softmax_f32_contig,
+    (const float* in, float* out, size_t outer, size_t inner))
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

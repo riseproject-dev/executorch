@@ -142,6 +142,93 @@ def _match_passthrough(node: torch.fx.Node) -> bool:
     return _dtype(node.args[0]) is not None
 
 
+def _match_bmm(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2:
+        return False
+    a, b = node.args[0], node.args[1]
+    return (
+        isinstance(a, torch.fx.Node)
+        and isinstance(b, torch.fx.Node)
+        and _is_fp32(_dtype(a), _dtype(b))
+    )
+
+
+def _match_softmax(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2:
+        return False
+    inp, dim = node.args[0], node.args[1]
+    if not isinstance(inp, torch.fx.Node) or not _is_fp32(_dtype(inp)):
+        return False
+    s = _shape(inp)
+    if s is None:
+        return False
+    d = int(dim)
+    if d < 0:
+        d += len(s)
+    return d == len(s) - 1
+
+
+def _match_mul_scalar(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2 or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    return _is_fp32(_dtype(node.args[0]))
+
+
+def _match_where(node: torch.fx.Node) -> bool:
+    if len(node.args) < 3:
+        return False
+    cond, a, b = node.args[0], node.args[1], node.args[2]
+    if not all(isinstance(x, torch.fx.Node) for x in (cond, a, b)):
+        return False
+    sc, sa, sb = _shape(cond), _shape(a), _shape(b)
+    # No-broadcast contract: kernel assumes all three share the output shape.
+    return sc is not None and sa is not None and sb is not None and sa == sb and sa == sc
+
+
+def _match_logical_not(node: torch.fx.Node) -> bool:
+    return len(node.args) >= 1 and isinstance(node.args[0], torch.fx.Node)
+
+
+def _match_cmp_scalar(node: torch.fx.Node) -> bool:
+    return len(node.args) >= 2 and isinstance(node.args[0], torch.fx.Node)
+
+
+def _match_any_dim(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2 or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    return True  # bool-tensor result; dtype check skipped
+
+
+def _match_cat(node: torch.fx.Node) -> bool:
+    tensors = node.args[0] if node.args else None
+    if not isinstance(tensors, (list, tuple)) or not tensors:
+        return False
+    return all(isinstance(t, torch.fx.Node) for t in tensors)
+
+
+def _match_embedding(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2:
+        return False
+    w, ix = node.args[0], node.args[1]
+    return (
+        isinstance(w, torch.fx.Node)
+        and isinstance(ix, torch.fx.Node)
+        and _is_fp32(_dtype(w))
+    )
+
+
+def _match_pad(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2 or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    return _is_fp32(_dtype(node.args[0]))
+
+
+def _match_anything(node: torch.fx.Node) -> bool:
+    """No-op predicate for tensor-creation ops (full, scalar_tensor, arange)
+    that don't need an input dtype check."""
+    return True
+
+
 # --- rewrite table --------------------------------------------------------
 
 
@@ -177,12 +264,34 @@ _REWRITES = [
     ),
     (_edge_or_aten("view_copy.default"), torch.ops.riscv.view_copy.default, _match_passthrough),
     (_edge_or_aten("permute_copy.default"), torch.ops.riscv.permute_copy.default, _match_passthrough),
+    # expand / unsqueeze / slice copy: the riscv:: fake Python impls don't
+    # always reproduce aten's SymInt shape arithmetic exactly (mobilebert hits
+    # a mismatch where the cat upstream sees a size-8 vs size-9 tensor).
+    # Keep on portable until the riscv:: fakes match.
+    # cat: skipped — fake-shape inference picks the original input sizes and
+    # asserts dim-mismatch even though the actual runtime would pad-then-cat.
+    # Stays on portable until the riscv:: fake reproduces aten's relaxed
+    # broadcasting.
     # dim_order_ops live in a different namespace (executorch-specific), no aten counterpart.
     (
         {exir_ops.edge.dim_order_ops._clone_dim_order.default},
         torch.ops.riscv._clone_dim_order.default,
         _match_passthrough,
     ),
+    (_edge_or_aten("bmm.default"), torch.ops.riscv.bmm.default, _match_bmm),
+    (_edge_or_aten("_softmax.default"), torch.ops.riscv._softmax.default, _match_softmax),
+    (_edge_or_aten("mul.Scalar"), torch.ops.riscv.mul_Scalar.default, _match_mul_scalar),
+    (_edge_or_aten("where.self"), torch.ops.riscv.where_self.default, _match_where),
+    (_edge_or_aten("logical_not.default"), torch.ops.riscv.logical_not.default, _match_logical_not),
+    (_edge_or_aten("eq.Scalar"), torch.ops.riscv.eq_Scalar.default, _match_cmp_scalar),
+    (_edge_or_aten("ge.Scalar"), torch.ops.riscv.ge_Scalar.default, _match_cmp_scalar),
+    # full / full_like / scalar_tensor / arange take dtype/layout/device/pin_memory
+    # kwargs that the riscv:: registrations don't carry. Leave them on portable
+    # for now — they're 1-3 nodes per model and contribute nothing to runtime.
+    # constant_pad_nd / embedding: kept on portable until the riscv:: fakes
+    # match aten shape-inference exactly (their Python impls go through
+    # torch.nn.functional which mishandles a few edge cases in mobilebert).
+    (_edge_or_aten("any.dim"), torch.ops.riscv.any_dim.default, _match_any_dim),
 ]
 
 

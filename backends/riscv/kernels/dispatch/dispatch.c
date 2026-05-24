@@ -117,4 +117,15 @@ RISCV_DISPATCH_RVV_THEN_SCALAR(
      size_t pad_h, size_t pad_w, size_t dilation_h, size_t dilation_w),
     (in, out, indices, N, C, Hin, Win, Hout, Wout,
      Kh, Kw, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    bmm_f32,
+    (const float* a, const float* b, float* out,
+     size_t B, size_t M, size_t N, size_t K),
+    (a, b, out, B, M, N, K))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    softmax_f32_contig,
+    (const float* in, float* out, size_t outer, size_t inner),
+    (in, out, outer, inner))
 /* clang-format on */

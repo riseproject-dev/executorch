@@ -78,3 +78,51 @@
   kernels:
     - arg_meta: null
       kernel_name: riscv::_clone_dim_order_out
+
+- func: riscv::bmm.out(Tensor self, Tensor mat2, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::bmm_out
+
+- func: riscv::_softmax.out(Tensor self, int dim, bool half_to_float, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::_softmax_out
+
+- func: riscv::mul_Scalar.out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::mul_Scalar_out
+
+- func: riscv::where_self.out(Tensor condition, Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::where_self_out
+
+- func: riscv::logical_not.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::logical_not_out
+
+- func: riscv::eq_Scalar.out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::eq_Scalar_out
+
+- func: riscv::ge_Scalar.out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::ge_Scalar_out
+
+- func: riscv::any_dim.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::any_dim_out

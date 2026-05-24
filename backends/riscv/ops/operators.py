@@ -477,7 +477,8 @@ lib.define("view_copy.out(Tensor self, int[] size, *, Tensor(a!) out) -> Tensor(
 
 @register_fake("riscv::view_copy")
 def _view_copy_fake(self: torch.Tensor, size: List[int]) -> torch.Tensor:
-    return torch.empty(size, dtype=self.dtype)
+    # Use reshape so -1 in `size` gets inferred from numel (matches aten).
+    return self.reshape(size)
 
 
 @impl(lib, "view_copy", "CompositeExplicitAutograd")
@@ -538,4 +539,436 @@ def _clone_out_impl(
     out: torch.Tensor,
 ) -> torch.Tensor:
     out.copy_(self)
+    return out
+
+
+# --- bmm -------------------------------------------------------------------
+
+lib.define("bmm(Tensor self, Tensor mat2) -> Tensor")
+lib.define("bmm.out(Tensor self, Tensor mat2, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::bmm")
+def _bmm_fake(self: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+    return torch.empty(
+        (self.shape[0], self.shape[1], mat2.shape[2]), dtype=self.dtype
+    )
+
+
+@impl(lib, "bmm", "CompositeExplicitAutograd")
+def _bmm_impl(self: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+    return torch.bmm(self, mat2)
+
+
+@impl(lib, "bmm.out", "CompositeExplicitAutograd")
+def _bmm_out_impl(self: torch.Tensor, mat2: torch.Tensor, *, out: torch.Tensor) -> torch.Tensor:
+    torch.bmm(self, mat2, out=out)
+    return out
+
+
+# --- _softmax --------------------------------------------------------------
+
+lib.define("_softmax(Tensor self, int dim, bool half_to_float) -> Tensor")
+lib.define("_softmax.out(Tensor self, int dim, bool half_to_float, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::_softmax")
+def _softmax_fake(self: torch.Tensor, dim: int, half_to_float: bool) -> torch.Tensor:
+    return torch.empty_like(self)
+
+
+@impl(lib, "_softmax", "CompositeExplicitAutograd")
+def _softmax_impl(self: torch.Tensor, dim: int, half_to_float: bool) -> torch.Tensor:
+    return torch._softmax(self, dim, half_to_float)
+
+
+@impl(lib, "_softmax.out", "CompositeExplicitAutograd")
+def _softmax_out_impl(self: torch.Tensor, dim: int, half_to_float: bool, *, out: torch.Tensor) -> torch.Tensor:
+    y = torch._softmax(self, dim, half_to_float)
+    out.copy_(y)
+    return out
+
+
+# --- mul.Scalar ------------------------------------------------------------
+
+lib.define("mul_Scalar(Tensor self, Scalar other) -> Tensor")
+lib.define("mul_Scalar.out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::mul_Scalar")
+def _mul_scalar_fake(self: torch.Tensor, other) -> torch.Tensor:
+    return torch.empty_like(self)
+
+
+@impl(lib, "mul_Scalar", "CompositeExplicitAutograd")
+def _mul_scalar_impl(self: torch.Tensor, other) -> torch.Tensor:
+    return torch.mul(self, other)
+
+
+@impl(lib, "mul_Scalar.out", "CompositeExplicitAutograd")
+def _mul_scalar_out_impl(self: torch.Tensor, other, *, out: torch.Tensor) -> torch.Tensor:
+    torch.mul(self, other, out=out)
+    return out
+
+
+# --- where -----------------------------------------------------------------
+
+lib.define("where_self(Tensor condition, Tensor self, Tensor other) -> Tensor")
+lib.define("where_self.out(Tensor condition, Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::where_self")
+def _where_fake(condition: torch.Tensor, self: torch.Tensor, other: torch.Tensor) -> torch.Tensor:
+    return torch.empty_like(self)
+
+
+@impl(lib, "where_self", "CompositeExplicitAutograd")
+def _where_impl(condition: torch.Tensor, self: torch.Tensor, other: torch.Tensor) -> torch.Tensor:
+    return torch.where(condition, self, other)
+
+
+@impl(lib, "where_self.out", "CompositeExplicitAutograd")
+def _where_out_impl(
+    condition: torch.Tensor, self: torch.Tensor, other: torch.Tensor, *, out: torch.Tensor
+) -> torch.Tensor:
+    y = torch.where(condition, self, other)
+    out.copy_(y)
+    return out
+
+
+# --- logical_not -----------------------------------------------------------
+
+lib.define("logical_not(Tensor self) -> Tensor")
+lib.define("logical_not.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::logical_not")
+def _logical_not_fake(self: torch.Tensor) -> torch.Tensor:
+    return torch.empty_like(self, dtype=torch.bool)
+
+
+@impl(lib, "logical_not", "CompositeExplicitAutograd")
+def _logical_not_impl(self: torch.Tensor) -> torch.Tensor:
+    return torch.logical_not(self)
+
+
+@impl(lib, "logical_not.out", "CompositeExplicitAutograd")
+def _logical_not_out_impl(self: torch.Tensor, *, out: torch.Tensor) -> torch.Tensor:
+    torch.logical_not(self, out=out)
+    return out
+
+
+# --- eq.Scalar / ge.Scalar -------------------------------------------------
+
+for cmp_name, torch_fn in (("eq_Scalar", torch.eq), ("ge_Scalar", torch.ge)):
+    lib.define(f"{cmp_name}(Tensor self, Scalar other) -> Tensor")
+    lib.define(f"{cmp_name}.out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+def _make_cmp_impls(cmp_name: str, torch_fn):
+    @register_fake(f"riscv::{cmp_name}")
+    def _cmp_fake(self: torch.Tensor, other) -> torch.Tensor:
+        return torch.empty_like(self, dtype=torch.bool)
+
+    @impl(lib, cmp_name, "CompositeExplicitAutograd")
+    def _cmp_impl(self: torch.Tensor, other) -> torch.Tensor:
+        return torch_fn(self, other)
+
+    @impl(lib, f"{cmp_name}.out", "CompositeExplicitAutograd")
+    def _cmp_out_impl(self: torch.Tensor, other, *, out: torch.Tensor) -> torch.Tensor:
+        torch_fn(self, other, out=out)
+        return out
+
+    return _cmp_fake, _cmp_impl, _cmp_out_impl
+
+
+_make_cmp_impls("eq_Scalar", torch.eq)
+_make_cmp_impls("ge_Scalar", torch.ge)
+
+
+# --- full / full_like / scalar_tensor / arange ----------------------------
+
+lib.define("full(SymInt[] size, Scalar fill_value) -> Tensor")
+lib.define("full.out(SymInt[] size, Scalar fill_value, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::full")
+def _full_fake(size: List[int], fill_value) -> torch.Tensor:
+    return torch.empty(size, dtype=torch.float32)
+
+
+@impl(lib, "full", "CompositeExplicitAutograd")
+def _full_impl(size: List[int], fill_value) -> torch.Tensor:
+    return torch.full(size, fill_value)
+
+
+@impl(lib, "full.out", "CompositeExplicitAutograd")
+def _full_out_impl(size: List[int], fill_value, *, out: torch.Tensor) -> torch.Tensor:
+    out.fill_(fill_value)
+    return out
+
+
+lib.define("full_like(Tensor self, Scalar fill_value, *, MemoryFormat? memory_format=None) -> Tensor")
+lib.define(
+    "full_like.out(Tensor self, Scalar fill_value, *, MemoryFormat? memory_format=None, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::full_like")
+def _full_like_fake(self: torch.Tensor, fill_value, *, memory_format=None) -> torch.Tensor:
+    return torch.empty_like(self)
+
+
+@impl(lib, "full_like", "CompositeExplicitAutograd")
+def _full_like_impl(self: torch.Tensor, fill_value, *, memory_format=None) -> torch.Tensor:
+    return torch.full_like(self, fill_value)
+
+
+@impl(lib, "full_like.out", "CompositeExplicitAutograd")
+def _full_like_out_impl(self: torch.Tensor, fill_value, *, memory_format=None, out: torch.Tensor) -> torch.Tensor:
+    out.fill_(fill_value)
+    return out
+
+
+lib.define("scalar_tensor(Scalar s) -> Tensor")
+lib.define("scalar_tensor.out(Scalar s, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::scalar_tensor")
+def _scalar_tensor_fake(s) -> torch.Tensor:
+    return torch.empty((), dtype=torch.float32)
+
+
+@impl(lib, "scalar_tensor", "CompositeExplicitAutograd")
+def _scalar_tensor_impl(s) -> torch.Tensor:
+    return torch.scalar_tensor(s)
+
+
+@impl(lib, "scalar_tensor.out", "CompositeExplicitAutograd")
+def _scalar_tensor_out_impl(s, *, out: torch.Tensor) -> torch.Tensor:
+    out.fill_(s)
+    return out
+
+
+lib.define("arange_start_step(Scalar start, Scalar end, Scalar step=1) -> Tensor")
+lib.define(
+    "arange_start_step.out(Scalar start, Scalar end, Scalar step=1, *, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::arange_start_step")
+def _arange_fake(start, end, step=1) -> torch.Tensor:
+    return torch.arange(start, end, step)
+
+
+@impl(lib, "arange_start_step", "CompositeExplicitAutograd")
+def _arange_impl(start, end, step=1) -> torch.Tensor:
+    return torch.arange(start, end, step)
+
+
+@impl(lib, "arange_start_step.out", "CompositeExplicitAutograd")
+def _arange_out_impl(start, end, step=1, *, out: torch.Tensor) -> torch.Tensor:
+    torch.arange(start, end, step, out=out)
+    return out
+
+
+# --- constant_pad_nd -------------------------------------------------------
+
+lib.define("constant_pad_nd(Tensor self, SymInt[] pad, Scalar value=0) -> Tensor")
+lib.define(
+    "constant_pad_nd.out(Tensor self, SymInt[] pad, Scalar value=0, *, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::constant_pad_nd")
+def _pad_fake(self: torch.Tensor, pad: List[int], value=0) -> torch.Tensor:
+    return torch.nn.functional.pad(self, list(pad), value=value)
+
+
+@impl(lib, "constant_pad_nd", "CompositeExplicitAutograd")
+def _pad_impl(self: torch.Tensor, pad: List[int], value=0) -> torch.Tensor:
+    return torch.nn.functional.pad(self, list(pad), value=value)
+
+
+@impl(lib, "constant_pad_nd.out", "CompositeExplicitAutograd")
+def _pad_out_impl(self: torch.Tensor, pad: List[int], value=0, *, out: torch.Tensor) -> torch.Tensor:
+    y = torch.nn.functional.pad(self, list(pad), value=value)
+    out.copy_(y)
+    return out
+
+
+# --- embedding -------------------------------------------------------------
+
+lib.define(
+    "embedding(Tensor weight, Tensor indices, SymInt padding_idx=-1, bool scale_grad_by_freq=False, bool sparse=False) -> Tensor"
+)
+lib.define(
+    "embedding.out(Tensor weight, Tensor indices, SymInt padding_idx=-1, bool scale_grad_by_freq=False, bool sparse=False, *, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::embedding")
+def _embedding_fake(
+    weight: torch.Tensor,
+    indices: torch.Tensor,
+    padding_idx: int = -1,
+    scale_grad_by_freq: bool = False,
+    sparse: bool = False,
+) -> torch.Tensor:
+    return torch.empty(tuple(indices.shape) + (weight.shape[1],), dtype=weight.dtype)
+
+
+@impl(lib, "embedding", "CompositeExplicitAutograd")
+def _embedding_impl(
+    weight: torch.Tensor,
+    indices: torch.Tensor,
+    padding_idx: int = -1,
+    scale_grad_by_freq: bool = False,
+    sparse: bool = False,
+) -> torch.Tensor:
+    return torch.nn.functional.embedding(indices, weight)
+
+
+@impl(lib, "embedding.out", "CompositeExplicitAutograd")
+def _embedding_out_impl(
+    weight: torch.Tensor,
+    indices: torch.Tensor,
+    padding_idx: int = -1,
+    scale_grad_by_freq: bool = False,
+    sparse: bool = False,
+    *,
+    out: torch.Tensor,
+) -> torch.Tensor:
+    y = torch.nn.functional.embedding(indices, weight)
+    out.copy_(y)
+    return out
+
+
+# --- any.dim ---------------------------------------------------------------
+
+lib.define("any_dim(Tensor self, int dim, bool keepdim=False) -> Tensor")
+lib.define("any_dim.out(Tensor self, int dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::any_dim")
+def _any_fake(self: torch.Tensor, dim: int, keepdim: bool = False) -> torch.Tensor:
+    return torch.any(self, dim=dim, keepdim=keepdim)
+
+
+@impl(lib, "any_dim", "CompositeExplicitAutograd")
+def _any_impl(self: torch.Tensor, dim: int, keepdim: bool = False) -> torch.Tensor:
+    return torch.any(self, dim=dim, keepdim=keepdim)
+
+
+@impl(lib, "any_dim.out", "CompositeExplicitAutograd")
+def _any_out_impl(self: torch.Tensor, dim: int, keepdim: bool = False, *, out: torch.Tensor) -> torch.Tensor:
+    torch.any(self, dim=dim, keepdim=keepdim, out=out)
+    return out
+
+
+# --- expand_copy / unsqueeze_copy / slice_copy / cat ----------------------
+
+lib.define("expand_copy(Tensor self, SymInt[] size, *, bool implicit=False) -> Tensor")
+lib.define(
+    "expand_copy.out(Tensor self, SymInt[] size, *, bool implicit=False, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::expand_copy")
+def _expand_copy_fake(self: torch.Tensor, size: List[int], *, implicit: bool = False) -> torch.Tensor:
+    return torch.empty(size, dtype=self.dtype)
+
+
+@impl(lib, "expand_copy", "CompositeExplicitAutograd")
+def _expand_copy_impl(self: torch.Tensor, size: List[int], *, implicit: bool = False) -> torch.Tensor:
+    return self.expand(size).contiguous()
+
+
+@impl(lib, "expand_copy.out", "CompositeExplicitAutograd")
+def _expand_copy_out_impl(self: torch.Tensor, size: List[int], *, implicit: bool = False, out: torch.Tensor) -> torch.Tensor:
+    out.copy_(self.expand(size))
+    return out
+
+
+lib.define("unsqueeze_copy(Tensor self, int dim) -> Tensor")
+lib.define("unsqueeze_copy.out(Tensor self, int dim, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::unsqueeze_copy")
+def _unsqueeze_copy_fake(self: torch.Tensor, dim: int) -> torch.Tensor:
+    return torch.empty(self.unsqueeze(dim).shape, dtype=self.dtype)
+
+
+@impl(lib, "unsqueeze_copy", "CompositeExplicitAutograd")
+def _unsqueeze_copy_impl(self: torch.Tensor, dim: int) -> torch.Tensor:
+    return self.unsqueeze(dim).clone()
+
+
+@impl(lib, "unsqueeze_copy.out", "CompositeExplicitAutograd")
+def _unsqueeze_copy_out_impl(self: torch.Tensor, dim: int, *, out: torch.Tensor) -> torch.Tensor:
+    out.copy_(self.unsqueeze(dim))
+    return out
+
+
+lib.define(
+    "slice_copy_Tensor(Tensor self, int dim=0, SymInt? start=None, SymInt? end=None, SymInt step=1) -> Tensor"
+)
+lib.define(
+    "slice_copy_Tensor.out(Tensor self, int dim=0, SymInt? start=None, SymInt? end=None, SymInt step=1, *, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+@register_fake("riscv::slice_copy_Tensor")
+def _slice_copy_fake(
+    self: torch.Tensor,
+    dim: int = 0,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    step: int = 1,
+) -> torch.Tensor:
+    return torch.empty(self.shape, dtype=self.dtype)  # exact shape recomputed by exir
+
+
+@impl(lib, "slice_copy_Tensor", "CompositeExplicitAutograd")
+def _slice_copy_impl(
+    self: torch.Tensor,
+    dim: int = 0,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    step: int = 1,
+) -> torch.Tensor:
+    return self.narrow(dim, start or 0, (end or self.shape[dim]) - (start or 0)).clone()
+
+
+@impl(lib, "slice_copy_Tensor.out", "CompositeExplicitAutograd")
+def _slice_copy_out_impl(
+    self: torch.Tensor,
+    dim: int = 0,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    step: int = 1,
+    *,
+    out: torch.Tensor,
+) -> torch.Tensor:
+    out.copy_(torch.slice_copy(self, dim, start, end, step))
+    return out
+
+
+lib.define("cat(Tensor[] tensors, int dim=0) -> Tensor")
+lib.define("cat.out(Tensor[] tensors, int dim=0, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::cat")
+def _cat_fake(tensors: List[torch.Tensor], dim: int = 0) -> torch.Tensor:
+    return torch.cat(tensors, dim=dim)
+
+
+@impl(lib, "cat", "CompositeExplicitAutograd")
+def _cat_impl(tensors: List[torch.Tensor], dim: int = 0) -> torch.Tensor:
+    return torch.cat(tensors, dim=dim)
+
+
+@impl(lib, "cat.out", "CompositeExplicitAutograd")
+def _cat_out_impl(tensors: List[torch.Tensor], dim: int = 0, *, out: torch.Tensor) -> torch.Tensor:
+    torch.cat(tensors, dim=dim, out=out)
     return out

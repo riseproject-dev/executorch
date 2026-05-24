@@ -60,5 +60,37 @@ Tensor& mean_dim_out(
   return out;
 }
 
+/* aten::_softmax(self, dim, half_to_float). The C kernel always normalises
+ * along the trailing contiguous axis, so the glue collapses the leading
+ * dims via outer = prod(sizes[:dim]) and inner = sizes[dim] * ... * sizes[-1].
+ * ConvertToRiscvPass only forwards the case where `dim` is the last axis. */
+Tensor& _softmax_out(
+    KernelRuntimeContext& context,
+    const Tensor& self,
+    int64_t dim,
+    bool half_to_float,
+    Tensor& out) {
+  (void)context;
+  (void)half_to_float;
+  ET_CHECK_MSG(
+      self.scalar_type() == ScalarType::Float &&
+          out.scalar_type() == ScalarType::Float,
+      "riscv::_softmax only supports float32");
+  int64_t ndim = self.dim();
+  if (dim < 0)
+    dim += ndim;
+  ET_CHECK_MSG(
+      dim == ndim - 1,
+      "riscv::_softmax only handles softmax along the last dim");
+  size_t inner = (size_t)self.size((int)dim);
+  size_t outer = (size_t)(self.numel() / (int64_t)inner);
+  riscv_softmax_f32_contig(
+      self.const_data_ptr<float>(),
+      out.mutable_data_ptr<float>(),
+      outer,
+      inner);
+  return out;
+}
+
 } // namespace native
 } // namespace riscv
