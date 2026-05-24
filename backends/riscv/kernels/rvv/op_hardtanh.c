@@ -4,18 +4,13 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * Placeholder RVV variant: forwards to scalar. Replaced with a real
- * vfmax + vfmin strip-mine in the follow-up RVV pass.
+ * RVV 1.0 fp32 hardtanh = max(min(x, hi), lo). vfmax + vfmin against the
+ * scalar bounds with .vf so the chip doesn't have to broadcast on every
+ * loop iteration.
  */
 
+#include <riscv_vector.h>
 #include <stddef.h>
-
-extern void riscv_hardtanh_f32_scalar(
-    const float* in,
-    float* out,
-    size_t n,
-    float lo,
-    float hi);
 
 void riscv_hardtanh_f32_rvv(
     const float* in,
@@ -23,5 +18,14 @@ void riscv_hardtanh_f32_rvv(
     size_t n,
     float lo,
     float hi) {
-  riscv_hardtanh_f32_scalar(in, out, n, lo, hi);
+  while (n > 0) {
+    size_t vl = __riscv_vsetvl_e32m8(n);
+    vfloat32m8_t vx = __riscv_vle32_v_f32m8(in, vl);
+    vfloat32m8_t vy = __riscv_vfmin_vf_f32m8(vx, hi, vl);
+    vy = __riscv_vfmax_vf_f32m8(vy, lo, vl);
+    __riscv_vse32_v_f32m8(out, vy, vl);
+    in += vl;
+    out += vl;
+    n -= vl;
+  }
 }
