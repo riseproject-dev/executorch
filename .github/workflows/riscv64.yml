@@ -49,12 +49,6 @@ jobs:
           - { model: yolo26, quantize: true }
           # No riscv32-linux-gnu cross is packaged on Ubuntu.
           - { os: linux, arch: rv32 }
-          # riscv backend is currently 'add'-only; other models have no ConvertToRiscvPass coverage.
-          - { backend: riscv, model: mv2 }
-          - { backend: riscv, model: mobilebert }
-          - { backend: riscv, model: llama2 }
-          - { backend: riscv, model: resnet18 }
-          - { backend: riscv, model: yolo26 }
           # No int8 add yet in the riscv kernel library; quantize path falls back
           # to portable Q/DQ which doesn't have an out-variant chain wired up.
           - { backend: riscv, quantize: true }
