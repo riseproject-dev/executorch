@@ -47,5 +47,32 @@ Tensor& bmm_out(
   return out;
 }
 
+Tensor& mm_out(
+    KernelRuntimeContext& context,
+    const Tensor& self,
+    const Tensor& mat2,
+    Tensor& out) {
+  (void)context;
+  ET_CHECK_MSG(
+      self.scalar_type() == ScalarType::Float &&
+          mat2.scalar_type() == ScalarType::Float &&
+          out.scalar_type() == ScalarType::Float,
+      "riscv::mm only supports float32");
+  ET_CHECK_MSG(self.dim() == 2 && mat2.dim() == 2 && out.dim() == 2,
+               "riscv::mm requires 2-D tensors");
+  size_t M = (size_t)self.size(0);
+  size_t K = (size_t)self.size(1);
+  size_t N = (size_t)mat2.size(1);
+  ET_CHECK_MSG((size_t)mat2.size(0) == K && (size_t)out.size(0) == M &&
+                   (size_t)out.size(1) == N,
+               "riscv::mm shape mismatch");
+  riscv_mm_f32(
+      self.const_data_ptr<float>(),
+      mat2.const_data_ptr<float>(),
+      out.mutable_data_ptr<float>(),
+      M, N, K);
+  return out;
+}
+
 } // namespace native
 } // namespace riscv

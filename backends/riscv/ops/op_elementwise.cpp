@@ -82,6 +82,63 @@ Tensor& relu_out(
   return out;
 }
 
+Tensor& sub_out(
+    KernelRuntimeContext& context,
+    const Tensor& self,
+    const Tensor& other,
+    const executorch::aten::Scalar& alpha,
+    Tensor& out) {
+  (void)context;
+  ET_CHECK_MSG(
+      self.scalar_type() == ScalarType::Float &&
+          other.scalar_type() == ScalarType::Float &&
+          out.scalar_type() == ScalarType::Float,
+      "riscv::sub only supports float32");
+  ET_CHECK_MSG(self.numel() == out.numel() && other.numel() == out.numel(),
+               "riscv::sub numel mismatch");
+  riscv_sub_f32(
+      self.const_data_ptr<float>(),
+      other.const_data_ptr<float>(),
+      out.mutable_data_ptr<float>(),
+      static_cast<size_t>(self.numel()),
+      scalar_to_float(alpha));
+  return out;
+}
+
+Tensor& sigmoid_out(
+    KernelRuntimeContext& context,
+    const Tensor& self,
+    Tensor& out) {
+  (void)context;
+  ET_CHECK_MSG(
+      self.scalar_type() == ScalarType::Float &&
+          out.scalar_type() == ScalarType::Float,
+      "riscv::sigmoid only supports float32");
+  ET_CHECK_MSG(self.numel() == out.numel(), "riscv::sigmoid numel mismatch");
+  riscv_sigmoid_f32(
+      self.const_data_ptr<float>(),
+      out.mutable_data_ptr<float>(),
+      static_cast<size_t>(self.numel()));
+  return out;
+}
+
+Tensor& rsqrt_out(
+    KernelRuntimeContext& context,
+    const Tensor& self,
+    Tensor& out) {
+  (void)context;
+  ET_CHECK_MSG(
+      self.scalar_type() == ScalarType::Float &&
+          out.scalar_type() == ScalarType::Float,
+      "riscv::rsqrt only supports float32");
+  ET_CHECK_MSG(self.numel() == out.numel(), "riscv::rsqrt numel mismatch");
+  riscv_rsqrt_f32(
+      self.const_data_ptr<float>(),
+      out.mutable_data_ptr<float>(),
+      static_cast<size_t>(self.numel()));
+  return out;
+}
+
 Tensor& mul_out(
     KernelRuntimeContext& context,
     const Tensor& self,

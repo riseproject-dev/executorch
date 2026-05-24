@@ -153,6 +153,18 @@ RISCV_DECLARE_KERNEL(
     softmax_f32_contig,
     (const float* in, float* out, size_t outer, size_t inner))
 
+RISCV_DECLARE_KERNEL(
+    sub_f32,
+    (const float* a, const float* b, float* out, size_t n, float alpha))
+
+RISCV_DECLARE_KERNEL(sigmoid_f32, (const float* in, float* out, size_t n))
+RISCV_DECLARE_KERNEL(rsqrt_f32, (const float* in, float* out, size_t n))
+
+/* out[m, n] = sum_k a[m, k] * b[k, n]. Same kernel as bmm with B=1. */
+RISCV_DECLARE_KERNEL(
+    mm_f32,
+    (const float* a, const float* b, float* out, size_t M, size_t N, size_t K))
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

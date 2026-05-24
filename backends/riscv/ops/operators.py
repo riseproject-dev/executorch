@@ -542,6 +542,88 @@ def _clone_out_impl(
     return out
 
 
+# --- mm / sub / sigmoid / rsqrt -------------------------------------------
+
+lib.define("mm(Tensor self, Tensor mat2) -> Tensor")
+lib.define("mm.out(Tensor self, Tensor mat2, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::mm")
+def _mm_fake(self, mat2):
+    return torch.empty((self.shape[0], mat2.shape[1]), dtype=self.dtype)
+
+
+@impl(lib, "mm", "CompositeExplicitAutograd")
+def _mm_impl(self, mat2):
+    return torch.mm(self, mat2)
+
+
+@impl(lib, "mm.out", "CompositeExplicitAutograd")
+def _mm_out_impl(self, mat2, *, out):
+    torch.mm(self, mat2, out=out)
+    return out
+
+
+lib.define("sub(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor")
+lib.define("sub.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::sub")
+def _sub_fake(self, other, *, alpha=1):
+    return torch.empty_like(self)
+
+
+@impl(lib, "sub", "CompositeExplicitAutograd")
+def _sub_impl(self, other, *, alpha=1):
+    return torch.sub(self, other, alpha=alpha)
+
+
+@impl(lib, "sub.out", "CompositeExplicitAutograd")
+def _sub_out_impl(self, other, *, alpha=1, out):
+    torch.sub(self, other, alpha=alpha, out=out)
+    return out
+
+
+lib.define("sigmoid(Tensor self) -> Tensor")
+lib.define("sigmoid.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::sigmoid")
+def _sigmoid_fake(self):
+    return torch.empty_like(self)
+
+
+@impl(lib, "sigmoid", "CompositeExplicitAutograd")
+def _sigmoid_impl(self):
+    return torch.sigmoid(self)
+
+
+@impl(lib, "sigmoid.out", "CompositeExplicitAutograd")
+def _sigmoid_out_impl(self, *, out):
+    torch.sigmoid(self, out=out)
+    return out
+
+
+lib.define("rsqrt(Tensor self) -> Tensor")
+lib.define("rsqrt.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)")
+
+
+@register_fake("riscv::rsqrt")
+def _rsqrt_fake(self):
+    return torch.empty_like(self)
+
+
+@impl(lib, "rsqrt", "CompositeExplicitAutograd")
+def _rsqrt_impl(self):
+    return torch.rsqrt(self)
+
+
+@impl(lib, "rsqrt.out", "CompositeExplicitAutograd")
+def _rsqrt_out_impl(self, *, out):
+    torch.rsqrt(self, out=out)
+    return out
+
+
 # --- bmm -------------------------------------------------------------------
 
 lib.define("bmm(Tensor self, Tensor mat2) -> Tensor")

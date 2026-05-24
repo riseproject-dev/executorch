@@ -128,4 +128,24 @@ RISCV_DISPATCH_RVV_THEN_SCALAR(
     softmax_f32_contig,
     (const float* in, float* out, size_t outer, size_t inner),
     (in, out, outer, inner))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    sub_f32,
+    (const float* a, const float* b, float* out, size_t n, float alpha),
+    (a, b, out, n, alpha))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    sigmoid_f32,
+    (const float* in, float* out, size_t n),
+    (in, out, n))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    rsqrt_f32,
+    (const float* in, float* out, size_t n),
+    (in, out, n))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    mm_f32,
+    (const float* a, const float* b, float* out, size_t M, size_t N, size_t K),
+    (a, b, out, M, N, K))
 /* clang-format on */
