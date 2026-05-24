@@ -10,18 +10,34 @@ Enable with `-DEXECUTORCH_BUILD_RISCV=ON`.
 
 ## Status
 
-| Variant | `-march=` (linux / bare-rv64 / bare-rv32)                | Op `add` (fp32) | Tested CPUs                    |
-| ------- | --------------------------------------------------------- | --------------- | ------------------------------ |
-| scalar  | toolchain default (`rv64gc` / `rv64iafd` / `rv32imafdc`) | ✓               | `qemu -cpu rv{32,64}`          |
-| RVV 1.0 | `rv64gcv` / `rv64iafdv` / `rv32imafdcv`                  | ✓               | `qemu -cpu rv{32,64},v=true,vlen=…` |
+| Variant | `-march=` (linux / baremetal)                 | Tested CPUs                       |
+| ------- | --------------------------------------------- | --------------------------------- |
+| scalar  | toolchain default (`rv64gc` / `rv64iafd`)     | `qemu -cpu rv{32,64}`             |
+| RVV 1.0 | `rv64gcv` / `rv32imafdcv` (override via cache) | `qemu -cpu rv{32,64},v=true,vlen=…` |
 
-Op coverage in the PoC: `aten::add.Tensor` (fp32, no broadcast, alpha=1).
-Any other shape / dtype / alpha falls back to the portable kernel.
+Op coverage (all fp32, all contiguous, predicates in
+`backends/riscv/passes/convert_to_riscv_pass.py` filter out shapes the
+kernels don't handle; non-matching nodes stay on portable):
 
-P, VME, IME and AME aren't part of this PoC and will be reintroduced once
-their kernels exist — adding a new variant is one entry in
-`_riscv_variants`, one feature bit in `riscv_features.h`, and one slot in
-the dispatch table (see *Adding an ISA variant* below).
+  add · mul · mul.Scalar · sub · hardtanh · relu · sigmoid · rsqrt · mean.dim ·
+  addmm · mm · bmm · _native_batch_norm_legit_no_training · convolution ·
+  max_pool2d_with_indices · _softmax · view_copy · permute_copy ·
+  _clone_dim_order · where.self · logical_not · eq.Scalar · ge.Scalar ·
+  any.dim · cat · embedding · slice_copy · expand_copy · unsqueeze_copy ·
+  constant_pad_nd.
+
+RVV implementations (kernels/rvv/op_*.c): add, mul, sub, relu, hardtanh,
+rsqrt (vfrsqrt7 + one Newton step), mean.dim (vfredusum), mm / bmm /
+addmm (vfmul + vfredusum dot product, strided load on the B column),
+batch_norm (vfmacc inner loop), max_pool2d (vfmax over the (Kh, Kw)
+window for the contiguous / stride-1 fast path). Other ops fall through
+to scalar pending their RVV rewrite — see kernels/rvv/op_*.c for which
+ones are real vs forwarding.
+
+P, VME, IME and AME aren't part of this PoC and will be reintroduced
+once their kernels exist — adding a new variant is one entry in
+`_riscv_variants`, one feature bit in `riscv_features.h`, and one slot
+in the dispatch table (see *Adding an ISA variant* below).
 
 ## Dispatch design
 
