@@ -4,10 +4,11 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * RVV 1.0 fp32 add. Compiled with -march=rv64gcv; the dispatcher only
- * routes here when riscv_features_detect() reports RISCV_FEATURE_V. The
- * loop uses vsetvl strip-mining so a single body handles the tail without a
- * separate scalar epilogue.
+ * RVV 1.0 fp32 add. Compiled with the per-target rvv -march (rv64gcv on
+ * linux, rv64iafdv / rv32imafdcv on baremetal); the dispatcher only routes
+ * here when riscv_features_detect() reports RISCV_FEATURE_V. The loop uses
+ * vsetvl strip-mining so a single body handles the tail without a separate
+ * scalar epilogue.
  */
 
 #include <riscv_vector.h>

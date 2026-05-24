@@ -9,9 +9,11 @@
 #
 # Configure:
 #   -DEXECUTORCH_BUILD_RISCV=ON
-#   -DEXECUTORCH_RISCV_KERNELS=all      # default; same as scalar;rvv;p;vme;ime;ame
+#   -DEXECUTORCH_RISCV_KERNELS=all      # default; same as scalar;rvv
 #   -DEXECUTORCH_RISCV_KERNELS=scalar   # compile-time subset (single variant)
 #   -DEXECUTORCH_RISCV_KERNELS=scalar;rvv
+# P / VME / IME / AME kernels are not part of this PoC and will be reintroduced
+# alongside their implementations.
 
 cmake_minimum_required(VERSION 3.19)
 
@@ -26,27 +28,32 @@ endif()
 include(${EXECUTORCH_ROOT}/tools/cmake/Utils.cmake)
 include(${EXECUTORCH_ROOT}/tools/cmake/Codegen.cmake)
 
-# Resolve the variant list. "all" expands to every variant we know about;
-# stub variants (p/vme/ime/ame) are included so the dispatch table stays
-# complete on hardware that advertises those bits.
+# Resolve the variant list. "all" expands to every variant the PoC ships.
 set(EXECUTORCH_RISCV_KERNELS
     "all"
     CACHE STRING "Semicolon list of variants or 'all'"
 )
 if(EXECUTORCH_RISCV_KERNELS STREQUAL "all")
-  set(_riscv_variants scalar rvv p vme ime ame)
+  set(_riscv_variants scalar rvv)
 else()
   set(_riscv_variants ${EXECUTORCH_RISCV_KERNELS})
 endif()
 
-# Per-variant -march=. The stub variants compile with the same baseline as
-# scalar; that's intentional until they grow real intrinsic-based code.
-set(_march_scalar "-march=rv64gc")
-set(_march_rvv "-march=rv64gcv")
-set(_march_p "-march=rv64gc")
-set(_march_vme "-march=rv64gc")
-set(_march_ime "-march=rv64gc")
-set(_march_ame "-march=rv64gc")
+# Per-variant -march=. The scalar TU inherits whatever the cross toolchain set
+# (rv64gc on linux, rv64iafd / rv32imafdc on baremetal). The rvv TU needs the
+# V extension on top, so we re-spell -march per target. Override via
+# -DEXECUTORCH_RISCV_RVV_MARCH=... if the defaults don't match your toolchain.
+set(_march_scalar "")
+if(NOT EXECUTORCH_RISCV_RVV_MARCH)
+  if(CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv32")
+    set(EXECUTORCH_RISCV_RVV_MARCH "rv32imafdcv")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(EXECUTORCH_RISCV_RVV_MARCH "rv64gcv")
+  else()
+    set(EXECUTORCH_RISCV_RVV_MARCH "rv64iafdv")
+  endif()
+endif()
+set(_march_rvv "-march=${EXECUTORCH_RISCV_RVV_MARCH}")
 
 # Feature-detection library. Linux path uses hwprobe + getauxval; baremetal
 # returns a compile-time-constant struct. The choice is driven by
@@ -66,9 +73,25 @@ add_library(
                         ${_riscv_features_target_src}
 )
 target_include_directories(
-  riscv_features PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/runtime
+  riscv_features
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/runtime>
+         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/executorch/backends/riscv/runtime>
 )
 target_compile_options(riscv_features PRIVATE ${_march_scalar})
+# Forward the CMake cache vars (set by examples/riscv/run.sh for baremetal) to
+# the C preprocessor so riscv_features_baremetal.c picks them up.
+if(DEFINED EXECUTORCH_RISCV_BAREMETAL_FEATURES)
+  target_compile_definitions(
+    riscv_features PRIVATE
+    EXECUTORCH_RISCV_BAREMETAL_FEATURES=${EXECUTORCH_RISCV_BAREMETAL_FEATURES}ULL
+  )
+endif()
+if(DEFINED EXECUTORCH_RISCV_BAREMETAL_VLEN)
+  target_compile_definitions(
+    riscv_features PRIVATE
+    EXECUTORCH_RISCV_BAREMETAL_VLEN=${EXECUTORCH_RISCV_BAREMETAL_VLEN}U
+  )
+endif()
 set_property(TARGET riscv_features PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # Per-variant kernel archives. Each TU is compiled with its own -march= so

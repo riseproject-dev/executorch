@@ -48,10 +48,6 @@ void riscv_add_f32_scalar(
     float* out,
     size_t n);
 void riscv_add_f32_rvv(const float* a, const float* b, float* out, size_t n);
-void riscv_add_f32_p(const float* a, const float* b, float* out, size_t n);
-void riscv_add_f32_vme(const float* a, const float* b, float* out, size_t n);
-void riscv_add_f32_ime(const float* a, const float* b, float* out, size_t n);
-void riscv_add_f32_ame(const float* a, const float* b, float* out, size_t n);
 
 #ifdef __cplusplus
 } /* extern "C" */

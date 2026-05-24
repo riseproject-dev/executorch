@@ -4,9 +4,10 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * Baseline scalar fp32 add. Compiled with -march=rv64gc; safe to run on any
- * RV64GC CPU. Acts as the fallback when no extension-specific variant is
- * selected by the dispatcher.
+ * Baseline scalar fp32 add. Compiles under whatever -march= the cross
+ * toolchain set (rv64gc on linux, rv64iafd / rv32imafdc on baremetal); no
+ * extension intrinsics, so the same TU works in every supported config and
+ * acts as the dispatcher's fallback.
  */
 
 #include <stddef.h>

@@ -3,26 +3,25 @@
 Same-process CPU backend for RISC-V. Kernels are hand-written in C using
 `<riscv_vector.h>` intrinsics for the RVV path and plain C for the scalar
 path. Variants are selected at **runtime** from `riscv_features_detect()`,
-so a single binary can run on RV64GC baseline hardware and light up RVV
-when present.
+so a single binary can run on the baseline ISA (RV64GC under Linux,
+RV64IAFD or RV32IMAFDC on baremetal) and light up RVV when present.
 
 Enable with `-DEXECUTORCH_BUILD_RISCV=ON`.
 
 ## Status
 
-| Variant | `-march=`     | Op `add` (fp32) | Tested CPUs                    |
-| ------- | ------------- | --------------- | ------------------------------ |
-| scalar  | `rv64gc`      | ✓               | `qemu -cpu rv64`               |
-| RVV 1.0 | `rv64gcv`     | ✓               | `qemu -cpu rv64,v=true,vlen=…` |
-| P       | `rv64gc`      | stub → scalar   | —                              |
-| VME     | `rv64gc`      | stub → scalar   | —                              |
-| IME     | `rv64gc`      | stub → scalar   | —                              |
-| AME     | `rv64gc`      | stub → scalar   | —                              |
+| Variant | `-march=` (linux / bare-rv64 / bare-rv32)                | Op `add` (fp32) | Tested CPUs                    |
+| ------- | --------------------------------------------------------- | --------------- | ------------------------------ |
+| scalar  | toolchain default (`rv64gc` / `rv64iafd` / `rv32imafdc`) | ✓               | `qemu -cpu rv{32,64}`          |
+| RVV 1.0 | `rv64gcv` / `rv64iafdv` / `rv32imafdcv`                  | ✓               | `qemu -cpu rv{32,64},v=true,vlen=…` |
 
 Op coverage in the PoC: `aten::add.Tensor` (fp32, no broadcast, alpha=1).
-Any other shape / dtype / alpha falls back to the portable kernel. The
-"stub" variants exist so the dispatch table and CMake plumbing stay
-complete; they forward to scalar.
+Any other shape / dtype / alpha falls back to the portable kernel.
+
+P, VME, IME and AME aren't part of this PoC and will be reintroduced once
+their kernels exist — adding a new variant is one entry in
+`_riscv_variants`, one feature bit in `riscv_features.h`, and one slot in
+the dispatch table (see *Adding an ISA variant* below).
 
 ## Dispatch design
 
@@ -31,19 +30,18 @@ Two compile-time paths, both with a runtime pick:
 * **Path 1 — compile everything in (default).** Every implemented variant
   is built into its own static archive with its own `-march=`. The
   dispatcher (`kernels/dispatch/op_add_dispatch.c`, compiled with the
-  baseline `rv64gc`) walks a priority-ordered table on first call and
-  caches the chosen function pointer. Highest priority first: AME → IME →
-  VME → P → RVV → scalar.
+  toolchain default) walks a priority-ordered table on first call and
+  caches the chosen function pointer. Highest priority first: RVV → scalar.
 
 * **Path 2 — compile-time subset.** Set
-  `-DEXECUTORCH_RISCV_KERNELS=scalar` (or any semicolon list). Variants
-  not on the list aren't built and aren't linked; the dispatcher only
-  considers what's present. With a single variant the dispatcher
-  effectively collapses to a direct call.
+  `-DEXECUTORCH_RISCV_KERNELS=scalar` (or any semicolon list of
+  `scalar`, `rvv`). Variants not on the list aren't built and aren't
+  linked; the dispatcher only considers what's present. With a single
+  variant the dispatcher effectively collapses to a direct call.
 
 The dispatcher itself never uses extension-specific intrinsics, so the
-*single binary* property holds: a Path 1 build runs on any RV64GC CPU and
-upgrades automatically when V is detected.
+*single binary* property holds: a Path 1 build runs on the baseline ISA
+and upgrades automatically when V is detected.
 
 ## Feature detection
 
@@ -68,11 +66,14 @@ The probe path depends on `CMAKE_SYSTEM_NAME`:
 ## Building & running
 
 ```bash
-examples/riscv/setup.sh         # cross toolchain + qemu-user-static
-examples/riscv/run.sh --backend=riscv
+examples/riscv/setup.sh                     # cross toolchains + qemu
+examples/riscv/run.sh --backend=riscv       # linux + rv64
+examples/riscv/run.sh --backend=riscv --os=baremetal              # baremetal + rv64
+examples/riscv/run.sh --backend=riscv --os=baremetal --arch=rv32  # baremetal + rv32
 
-# Run on a specific CPU config
-QEMU_CPU=rv64,v=true,vlen=256 examples/riscv/run.sh --backend=riscv
+# Force RVV at qemu time
+examples/riscv/run.sh --backend=riscv \
+    --qemu-cpu-ext='zba=true,zbb=true,zbs=true,v=true,vlen=256,elen=64,vext_spec=v1.0'
 
 # Path 2: compile only the scalar variant
 examples/riscv/run.sh --backend=riscv --riscv-kernels=scalar

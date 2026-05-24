@@ -31,9 +31,18 @@ struct et_riscv_hwprobe {
   uint64_t value;
 };
 
+/* From <asm/hwprobe.h>; the IMA_EXT_0 key returns a bitmask of supported
+ * extensions. Bit positions match the upstream kernel headers (Linux 6.5+ for
+ * V/Zba/Zbb, 6.7+ for Zvf*, 6.10+ for Zvbb/Zvkt). Unknown bits read as 0 on
+ * older kernels — features are *optional* by design. */
 #define ET_RISCV_HWPROBE_KEY_IMA_EXT_0 4
 #define ET_RISCV_HWPROBE_IMA_V (1ULL << 2)
-#define ET_RISCV_HWPROBE_EXT_ZVFH (1ULL << 30)
+#define ET_RISCV_HWPROBE_EXT_ZVFHMIN (1ULL << 28)
+#define ET_RISCV_HWPROBE_EXT_ZVFH (1ULL << 29)
+#define ET_RISCV_HWPROBE_EXT_ZVFBFMIN (1ULL << 38)
+#define ET_RISCV_HWPROBE_EXT_ZVFBFWMA (1ULL << 39)
+#define ET_RISCV_HWPROBE_EXT_ZVBB (1ULL << 17)
+#define ET_RISCV_HWPROBE_EXT_ZVKT (1ULL << 26)
 
 /* AT_HWCAP bit for V; matches Linux's COMPAT_HWCAP_ISA_V = 1 << ('V' - 'A'). */
 #define ET_HWCAP_ISA_V (1UL << ('V' - 'A'))
@@ -59,9 +68,21 @@ static int try_hwprobe(riscv_features_t* out) {
     out->vlen_bytes = 16;
     out->elen_bytes = 8;
   }
-  if (ext & ET_RISCV_HWPROBE_EXT_ZVFH) {
+  /* Optional V sub-extensions. The kernel masks unknown bits to 0, so probing
+   * a missing extension just leaves the feature bit clear; kernels must check
+   * before using the corresponding intrinsics. */
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVFHMIN)
+    out->bits |= RISCV_FEATURE_ZVFHMIN;
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVFH)
     out->bits |= RISCV_FEATURE_ZVFH;
-  }
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVFBFMIN)
+    out->bits |= RISCV_FEATURE_ZVFBFMIN;
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVFBFWMA)
+    out->bits |= RISCV_FEATURE_ZVFBFWMA;
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVBB)
+    out->bits |= RISCV_FEATURE_ZVBB;
+  if (ext & ET_RISCV_HWPROBE_EXT_ZVKT)
+    out->bits |= RISCV_FEATURE_ZVKT;
   return 0;
 }
 

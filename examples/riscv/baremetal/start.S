@@ -25,8 +25,11 @@ _start:
 
     // mstatus.FS resets to Off in M-mode, so any FP insn (libstdc++ template
     // code emits fsd/fld) traps. We have no trap vector, so the CPU would
-    // loop on the fault. FS=Dirty (0b11 in bits 13-14) keeps the FPU live.
-    li      t0, 0x6000
+    // loop on the fault. Same for V instructions, gated by mstatus.VS — needed
+    // when the rvv kernel variant is dispatched. FS=Dirty (0b11 bits 13-14) +
+    // VS=Dirty (0b11 bits 9-10) → 0x6600. csrs on rv64 without V is benign:
+    // the VS bits are WPRI and just stay zero.
+    li      t0, 0x6600
     csrs    mstatus, t0
 
     la      a0, _bss_start

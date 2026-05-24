@@ -147,6 +147,24 @@ if ${verbose_xnnpack}; then
 fi
 if [[ "${backend}" == "riscv" ]]; then
     cmake_extra_args+=(-DEXECUTORCH_BUILD_RISCV=ON -DEXECUTORCH_RISCV_KERNELS="${riscv_kernels}")
+    # Baremetal has no hwprobe; the runtime feature struct is populated at compile
+    # time from these defines. Map qemu-cpu-ext back into the bitmask so rvv tests
+    # actually exercise the rvv dispatch path (bit 0 = RISCV_FEATURE_V, must match
+    # riscv_features.h).
+    if [[ "${os}" == "baremetal" ]]; then
+        bm_feats=0
+        bm_vlen=0
+        if [[ "${qemu_cpu_ext}" == *"v=true"* ]]; then
+            bm_feats=1
+            bm_vlen=16  # 128-bit RVV minimum; rvv kernels strip-mine so vlen detail doesn't matter for correctness
+            if [[ "${qemu_cpu_ext}" == *"vlen=256"* ]]; then bm_vlen=32; fi
+            if [[ "${qemu_cpu_ext}" == *"vlen=512"* ]]; then bm_vlen=64; fi
+        fi
+        cmake_extra_args+=(
+            -DEXECUTORCH_RISCV_BAREMETAL_FEATURES="${bm_feats}"
+            -DEXECUTORCH_RISCV_BAREMETAL_VLEN="${bm_vlen}"
+        )
+    fi
 fi
 
 # Map our short arch (rv32/rv64) to the canonical riscv32/riscv64 prefix used

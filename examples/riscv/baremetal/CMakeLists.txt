@@ -115,3 +115,10 @@ endif()
 if(TARGET portable_kernels)
   target_link_libraries(executor_runner_baremetal PRIVATE portable_kernels)
 endif()
+# Pulled in only when -DEXECUTORCH_BUILD_RISCV=ON; the gen_operators_lib INTERFACE
+# options already wrap it in --whole-archive (same as portable_ops_lib above), so
+# the static-init that registers riscv::add.out survives DCE without a manual
+# group.
+if(TARGET riscv_ops_lib)
+  target_link_libraries(executor_runner_baremetal PRIVATE riscv_ops_lib)
+endif()

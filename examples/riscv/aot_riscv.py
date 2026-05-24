@@ -241,6 +241,19 @@ def main() -> None:
 
         compile_config = EdgeCompileConfig(_check_ir_validity=False)
 
+    # The riscv backend rewrites aten ops to torch.ops.riscv.* which aren't
+    # edge ops; teach the edge verifier to accept them. Importing operators
+    # here (and not lazily inside the if) is what registers the riscv namespace
+    # with torch.ops; without it `torch.ops.riscv.add` raises AttributeError.
+    if args.backend == "riscv":
+        from executorch.exir import EdgeCompileConfig
+        import executorch.backends.riscv.ops.operators  # noqa: F401
+
+        compile_config = compile_config or EdgeCompileConfig()
+        compile_config._core_aten_ops_exception_list = list(
+            getattr(compile_config, "_core_aten_ops_exception_list", []) or []
+        ) + [torch.ops.riscv.add.default, torch.ops.riscv.add.out]
+
     transform_passes = None
     if args.backend == "riscv":
         from executorch.backends.riscv import ConvertToRiscvPass

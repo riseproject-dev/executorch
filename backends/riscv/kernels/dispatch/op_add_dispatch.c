@@ -27,18 +27,6 @@ typedef struct {
 } riscv_add_f32_variant_t;
 
 static const riscv_add_f32_variant_t kVariants[] = {
-#ifdef RISCV_KERNELS_HAVE_AME
-    {RISCV_FEATURE_AME, riscv_add_f32_ame},
-#endif
-#ifdef RISCV_KERNELS_HAVE_IME
-    {RISCV_FEATURE_IME, riscv_add_f32_ime},
-#endif
-#ifdef RISCV_KERNELS_HAVE_VME
-    {RISCV_FEATURE_VME, riscv_add_f32_vme},
-#endif
-#ifdef RISCV_KERNELS_HAVE_P
-    {RISCV_FEATURE_P, riscv_add_f32_p},
-#endif
 #ifdef RISCV_KERNELS_HAVE_RVV
     {RISCV_FEATURE_V, riscv_add_f32_rvv},
 #endif

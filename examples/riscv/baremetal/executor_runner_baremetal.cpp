@@ -88,7 +88,8 @@ void operator delete[](void*, size_t) noexcept {}
 // std::random_device::_M_{init,getval,fini}, whose only definitions live in
 // libstdc++.a's medlow-built random.o (won't relocate at 0x80000000). The
 // bundled-IO smoke tests never invoke those ops, so satisfy the linker with
-// no-op trampolines under the Itanium-mangled names.
+// no-op trampolines under the Itanium-mangled names. The .type directive and
+// its label must be on separate lines (gcc-15 GAS stricter than gcc-14).
 asm(R"(
     .globl _ZNSt13random_device7_M_initERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE
     .type  _ZNSt13random_device7_M_initERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE, @function

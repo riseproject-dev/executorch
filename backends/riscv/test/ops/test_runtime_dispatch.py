@@ -63,10 +63,6 @@ def _build_test_binary(
     march = {
         "scalar": "rv64gc",
         "rvv": "rv64gcv",
-        "p": "rv64gc",
-        "vme": "rv64gc",
-        "ime": "rv64gc",
-        "ame": "rv64gc",
     }
 
     objs: list[Path] = []
@@ -113,9 +109,7 @@ def _build_test_binary(
 def test_runtime_dispatch_under_qemu(qemu_cpu: str, tmp_path: Path) -> None:
     """Path 1: every variant compiled in, dispatcher picks at runtime."""
     root = Path(__file__).resolve().parents[2]
-    exe = _build_test_binary(
-        root, tmp_path, ["scalar", "rvv", "p", "vme", "ime", "ame"]
-    )
+    exe = _build_test_binary(root, tmp_path, ["scalar", "rvv"])
     out = subprocess.run(
         [QEMU_USER, "-cpu", qemu_cpu, str(exe)],
         check=True,

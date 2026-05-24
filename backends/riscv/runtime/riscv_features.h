@@ -14,16 +14,24 @@ extern "C" {
 #endif
 
 /*
- * Feature bits set by riscv_features_detect(). One bit per ISA extension that
- * the dispatcher cares about. Keep this stable; the values are baked into the
- * dispatch tables in kernels/dispatch/.
+ * Feature bits set by riscv_features_detect(). One bit per ISA extension the
+ * dispatcher cares about. Keep this stable — values are baked into the
+ * dispatch tables in kernels/dispatch/. P / VME / IME / AME are intentionally
+ * not represented yet; they'll be added back when their kernels land.
+ *
+ * Bits 0-7  : base vector
+ * Bits 8-15 : vector FP sub-extensions
+ * Bits 16-23: vector bitmanip / data-independent timing
  */
 #define RISCV_FEATURE_V (1ULL << 0) /* RVV 1.0 (V extension) */
-#define RISCV_FEATURE_P (1ULL << 1) /* Packed SIMD (P) */
-#define RISCV_FEATURE_VME (1ULL << 2) /* Vector Matrix Extension */
-#define RISCV_FEATURE_IME (1ULL << 3) /* Integer Matrix Extension */
-#define RISCV_FEATURE_AME (1ULL << 4) /* Advanced Matrix Extension */
-#define RISCV_FEATURE_ZVFH (1ULL << 5) /* Half-precision vector FP */
+
+#define RISCV_FEATURE_ZVFHMIN (1ULL << 8) /* Vector FP16 min */
+#define RISCV_FEATURE_ZVFH (1ULL << 9) /* Vector FP16 */
+#define RISCV_FEATURE_ZVFBFMIN (1ULL << 10) /* Vector BF16 converts */
+#define RISCV_FEATURE_ZVFBFWMA (1ULL << 11) /* Vector BF16 widening mul-add */
+
+#define RISCV_FEATURE_ZVBB (1ULL << 16) /* Vector basic bitmanip */
+#define RISCV_FEATURE_ZVKT (1ULL << 17) /* Vector data-independent timing */
 
 typedef struct {
   uint64_t bits;

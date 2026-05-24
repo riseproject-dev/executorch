@@ -55,6 +55,9 @@ jobs:
           - { backend: riscv, model: llama2 }
           - { backend: riscv, model: resnet18 }
           - { backend: riscv, model: yolo26 }
+          # No int8 add yet in the riscv kernel library; quantize path falls back
+          # to portable Q/DQ which doesn't have an out-variant chain wired up.
+          - { backend: riscv, quantize: true }
     permissions:
       id-token: write
       contents: read
