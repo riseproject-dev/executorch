@@ -3,42 +3,187 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Rewrites edge-dialect ops to their ``riscv::*`` counterparts.
+"""Edge-dialect -> riscv:: rewrite pass.
 
-Today this only handles ``aten.add.Tensor`` and only for the
-no-broadcast / ``alpha == 1`` / float32 case. Anything else stays on the
-portable kernel. The pass is intentionally conservative: it's safer for the
-PoC to leave a node alone than to rewrite it and discover at runtime that
-the kernel doesn't support the layout.
+Each entry in ``_REWRITES`` declares one rewrite: the edge-dialect op(s)
+that match, the destination ``riscv::`` op, and an optional predicate that
+gates the rewrite (e.g. dtype, broadcast, transposed=true). When the
+predicate fails the original aten node is left alone and runs on the
+portable kernel — the riscv backend is additive, not exclusive.
+
+The scalar kernels under ``backends/riscv/kernels/scalar/`` are float32-only
+and assume contiguous NCHW for the conv / batch-norm / pool family; the
+predicates here filter out anything outside that envelope.
 """
 
 from __future__ import annotations
 
-import executorch.backends.riscv.ops.operators  # noqa: F401 — registers riscv::add
+import executorch.backends.riscv.ops.operators  # noqa: F401 — registers riscv::*
 
 import torch
 from executorch.exir.dialects._ops import ops as exir_ops
 from executorch.exir.pass_base import ExportPass, PassResult
 
 
-_ATEN_ADD_TARGETS = {
-    exir_ops.edge.aten.add.Tensor,
-    torch.ops.aten.add.Tensor,
-}
+def _val(node):
+    return node.meta.get("val") if isinstance(node, torch.fx.Node) else None
 
 
-def _shape(node: torch.fx.Node):
-    val = node.meta.get("val")
-    if val is None:
-        return None
-    return tuple(val.shape)
+def _shape(node):
+    v = _val(node)
+    return tuple(v.shape) if v is not None else None
 
 
-def _dtype(node: torch.fx.Node):
-    val = node.meta.get("val")
-    if val is None:
-        return None
-    return val.dtype
+def _dtype(node):
+    v = _val(node)
+    return v.dtype if v is not None else None
+
+
+def _is_fp32(*ts) -> bool:
+    return all(t is not None and t == torch.float32 for t in ts)
+
+
+# --- per-op predicates ----------------------------------------------------
+
+
+def _match_add_or_mul(node: torch.fx.Node) -> bool:
+    """Element-wise binary: identical shape + fp32 + alpha=1."""
+    if len(node.args) < 2:
+        return False
+    a, b = node.args[0], node.args[1]
+    if not (isinstance(a, torch.fx.Node) and isinstance(b, torch.fx.Node)):
+        return False
+    if node.kwargs.get("alpha", 1) != 1:
+        return False
+    sa, sb = _shape(a), _shape(b)
+    if sa is None or sb is None or sa != sb:
+        return False
+    return _is_fp32(_dtype(a), _dtype(b))
+
+
+def _match_unary_fp32(node: torch.fx.Node) -> bool:
+    if len(node.args) < 1 or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    return _is_fp32(_dtype(node.args[0]))
+
+
+def _match_conv(node: torch.fx.Node) -> bool:
+    # aten.convolution.default args:
+    # input, weight, bias, stride, padding, dilation, transposed, output_pad, groups
+    if len(node.args) < 9:
+        return False
+    inp, w = node.args[0], node.args[1]
+    transposed = node.args[6]
+    if transposed:
+        return False
+    if not (isinstance(inp, torch.fx.Node) and isinstance(w, torch.fx.Node)):
+        return False
+    if not _is_fp32(_dtype(inp), _dtype(w)):
+        return False
+    s_inp = _shape(inp)
+    s_w = _shape(w)
+    return s_inp is not None and s_w is not None and len(s_inp) == 4 and len(s_w) == 4
+
+
+def _match_batch_norm(node: torch.fx.Node) -> bool:
+    if len(node.args) < 7:
+        return False
+    inp = node.args[0]
+    return (
+        isinstance(inp, torch.fx.Node)
+        and _is_fp32(_dtype(inp))
+        and _shape(inp) is not None
+        and len(_shape(inp)) == 4
+    )
+
+
+def _match_max_pool2d(node: torch.fx.Node) -> bool:
+    if len(node.args) < 2:
+        return False
+    inp = node.args[0]
+    return isinstance(inp, torch.fx.Node) and _is_fp32(_dtype(inp))
+
+
+def _match_addmm(node: torch.fx.Node) -> bool:
+    if len(node.args) < 3:
+        return False
+    a, b, c = node.args[0], node.args[1], node.args[2]
+    if not all(isinstance(x, torch.fx.Node) for x in (a, b, c)):
+        return False
+    return _is_fp32(_dtype(a), _dtype(b), _dtype(c))
+
+
+def _match_mean_dim(node: torch.fx.Node) -> bool:
+    """Only handle the contiguous trailing-dim reduction the vision models
+    emit (`(B, C, H, W) -> (B, C)` with keepdim either way)."""
+    if len(node.args) < 2:
+        return False
+    inp = node.args[0]
+    dims = node.args[1]
+    if not isinstance(inp, torch.fx.Node):
+        return False
+    if not _is_fp32(_dtype(inp)):
+        return False
+    if not isinstance(dims, (list, tuple)) or not dims:
+        return False
+    s = _shape(inp)
+    if s is None:
+        return False
+    ndim = len(s)
+    norm = sorted([(d % ndim) for d in dims])
+    return norm == list(range(ndim - len(norm), ndim))
+
+
+def _match_passthrough(node: torch.fx.Node) -> bool:
+    """view_copy / permute_copy / _clone_dim_order accept any dtype, no
+    shape constraints — they only move bytes."""
+    if len(node.args) < 1 or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    return _dtype(node.args[0]) is not None
+
+
+# --- rewrite table --------------------------------------------------------
+
+
+def _edge_or_aten(name: str):
+    """Pull both the edge-dialect and aten-dialect overloads of `name`.
+    Edge ops live under exir_ops.edge.aten.<op>.<overload>; the raw aten
+    overload is what pre-edge transform passes see."""
+    edge_obj = exir_ops.edge.aten
+    aten_obj = torch.ops.aten
+    for part in name.split("."):
+        edge_obj = getattr(edge_obj, part)
+        aten_obj = getattr(aten_obj, part)
+    return {edge_obj, aten_obj}
+
+
+_REWRITES = [
+    (_edge_or_aten("add.Tensor"), torch.ops.riscv.add.default, _match_add_or_mul),
+    (_edge_or_aten("mul.Tensor"), torch.ops.riscv.mul.default, _match_add_or_mul),
+    (_edge_or_aten("hardtanh.default"), torch.ops.riscv.hardtanh.default, _match_unary_fp32),
+    (_edge_or_aten("relu.default"), torch.ops.riscv.relu.default, _match_unary_fp32),
+    (_edge_or_aten("mean.dim"), torch.ops.riscv.mean.default, _match_mean_dim),
+    (_edge_or_aten("addmm.default"), torch.ops.riscv.addmm.default, _match_addmm),
+    (
+        _edge_or_aten("_native_batch_norm_legit_no_training.default"),
+        torch.ops.riscv._native_batch_norm_legit_no_training.default,
+        _match_batch_norm,
+    ),
+    (_edge_or_aten("convolution.default"), torch.ops.riscv.convolution.default, _match_conv),
+    (
+        _edge_or_aten("max_pool2d_with_indices.default"),
+        torch.ops.riscv.max_pool2d_with_indices.default,
+        _match_max_pool2d,
+    ),
+    (_edge_or_aten("view_copy.default"), torch.ops.riscv.view_copy.default, _match_passthrough),
+    (_edge_or_aten("permute_copy.default"), torch.ops.riscv.permute_copy.default, _match_passthrough),
+    # dim_order_ops live in a different namespace (executorch-specific), no aten counterpart.
+    (
+        {exir_ops.edge.dim_order_ops._clone_dim_order.default},
+        torch.ops.riscv._clone_dim_order.default,
+        _match_passthrough,
+    ),
+]
 
 
 class ConvertToRiscvPass(ExportPass):
@@ -46,37 +191,20 @@ class ConvertToRiscvPass(ExportPass):
         modified = False
         graph = graph_module.graph
         for node in list(graph.nodes):
-            if node.op != "call_function" or node.target not in _ATEN_ADD_TARGETS:
+            if node.op != "call_function":
                 continue
-
-            if len(node.args) < 2:
-                continue
-            self_n, other_n = node.args[0], node.args[1]
-            if not isinstance(self_n, torch.fx.Node) or not isinstance(
-                other_n, torch.fx.Node
-            ):
-                continue
-
-            alpha = node.kwargs.get("alpha", 1)
-            if alpha != 1:
-                continue
-
-            s_shape = _shape(self_n)
-            o_shape = _shape(other_n)
-            if s_shape is None or o_shape is None or s_shape != o_shape:
-                continue
-
-            if _dtype(self_n) != torch.float32 or _dtype(other_n) != torch.float32:
-                continue
-
-            with graph.inserting_before(node):
-                new_node = graph.call_function(
-                    torch.ops.riscv.add.default, (self_n, other_n)
-                )
-            new_node.meta = dict(node.meta)
-            node.replace_all_uses_with(new_node)
-            graph.erase_node(node)
-            modified = True
+            for sources, dest, predicate in _REWRITES:
+                if node.target not in sources:
+                    continue
+                if not predicate(node):
+                    break
+                with graph.inserting_before(node):
+                    new_node = graph.call_function(dest, node.args, node.kwargs)
+                new_node.meta = dict(node.meta)
+                node.replace_all_uses_with(new_node)
+                graph.erase_node(node)
+                modified = True
+                break
 
         if modified:
             graph_module.recompile()

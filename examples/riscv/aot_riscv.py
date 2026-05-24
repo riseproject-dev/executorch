@@ -250,9 +250,31 @@ def main() -> None:
         import executorch.backends.riscv.ops.operators  # noqa: F401
 
         compile_config = compile_config or EdgeCompileConfig()
-        compile_config._core_aten_ops_exception_list = list(
+        # Whitelist every riscv:: op + .out variant that ConvertToRiscvPass
+        # emits; the edge verifier rejects anything outside its core-aten
+        # allowlist. Keep this in sync with backends/riscv/ops/operators.py.
+        ns = torch.ops.riscv
+        exceptions = list(
             getattr(compile_config, "_core_aten_ops_exception_list", []) or []
-        ) + [torch.ops.riscv.add.default, torch.ops.riscv.add.out]
+        )
+        for op_name in (
+            "add",
+            "mul",
+            "hardtanh",
+            "relu",
+            "mean",
+            "addmm",
+            "_native_batch_norm_legit_no_training",
+            "convolution",
+            "max_pool2d_with_indices",
+            "view_copy",
+            "permute_copy",
+            "_clone_dim_order",
+        ):
+            packet = getattr(ns, op_name)
+            for ovld in packet.overloads():
+                exceptions.append(getattr(packet, ovld))
+        compile_config._core_aten_ops_exception_list = exceptions
 
     transform_passes = None
     if args.backend == "riscv":

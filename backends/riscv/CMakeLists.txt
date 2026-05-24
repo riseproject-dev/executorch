@@ -47,10 +47,12 @@ set(_march_scalar "")
 if(NOT EXECUTORCH_RISCV_RVV_MARCH)
   if(CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv32")
     set(EXECUTORCH_RISCV_RVV_MARCH "rv32imafdcv")
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(EXECUTORCH_RISCV_RVV_MARCH "rv64gcv")
   else()
-    set(EXECUTORCH_RISCV_RVV_MARCH "rv64iafdv")
+    # gcc-14 hits an ICE (riscv_expand_mult_with_const_int) on -march=rv64iafdv
+    # because the rvv intrinsics expand to integer multiplies that need the M
+    # extension. Use rv64gcv (= rv64imafdc + v) for both linux and baremetal —
+    # the extra m+c instructions don't show up at runtime for our kernel set.
+    set(EXECUTORCH_RISCV_RVV_MARCH "rv64gcv")
   endif()
 endif()
 set(_march_rvv "-march=${EXECUTORCH_RISCV_RVV_MARCH}")
@@ -94,27 +96,31 @@ if(DEFINED EXECUTORCH_RISCV_BAREMETAL_VLEN)
 endif()
 set_property(TARGET riscv_features PROPERTY POSITION_INDEPENDENT_CODE ON)
 
-# Per-variant kernel archives. Each TU is compiled with its own -march= so
-# that a single binary can hold V intrinsics next to plain rv64gc code; the
-# dispatcher (compiled with the baseline) is what decides at runtime which
-# one to call.
+# Per-variant kernel archives. Each TU is compiled with its own -march= so a
+# single binary can hold V intrinsics next to plain rv64gc code; the dispatcher
+# (compiled with the baseline) picks at runtime. CONFIGURE_DEPENDS reruns the
+# glob when files are added/removed so 'cmake --build' picks them up without a
+# reconfigure step — important when ops land incrementally.
 set(_riscv_kernel_libs)
 foreach(_v IN LISTS _riscv_variants)
   set(_lib riscv_kernels_${_v})
-  add_library(
-    ${_lib} STATIC ${CMAKE_CURRENT_SOURCE_DIR}/kernels/${_v}/op_add.c
+  file(
+    GLOB _kernel_srcs CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/kernels/${_v}/op_*.c"
   )
+  add_library(${_lib} STATIC ${_kernel_srcs})
   target_compile_options(${_lib} PRIVATE ${_march_${_v}})
   set_property(TARGET ${_lib} PROPERTY POSITION_INDEPENDENT_CODE ON)
   list(APPEND _riscv_kernel_libs ${_lib})
 endforeach()
 
-# Dispatcher. RISCV_KERNELS_HAVE_<V>=1 macros let the dispatcher's
-# selection table drop unselected variants at preprocessor time.
-add_library(
-  riscv_dispatch STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/kernels/dispatch/op_add_dispatch.c
+# Dispatcher. RISCV_KERNELS_HAVE_<V>=1 macros let each per-op selection table
+# drop unselected variants at preprocessor time.
+file(
+  GLOB _dispatch_srcs CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/kernels/dispatch/*.c"
 )
+add_library(riscv_dispatch STATIC ${_dispatch_srcs})
 target_compile_options(riscv_dispatch PRIVATE ${_march_scalar})
 set_property(TARGET riscv_dispatch PROPERTY POSITION_INDEPENDENT_CODE ON)
 foreach(_v IN LISTS _riscv_variants)
@@ -136,7 +142,11 @@ generate_bindings_for_kernels(
   LIB_NAME "riscv_ops_lib" CUSTOM_OPS_YAML "${_yaml_file}"
 )
 
-add_library(riscv_kernels ${CMAKE_CURRENT_SOURCE_DIR}/ops/op_add.cpp)
+file(
+  GLOB _riscv_ops_srcs CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/ops/op_*.cpp"
+)
+add_library(riscv_kernels ${_riscv_ops_srcs})
 target_include_directories(
   riscv_kernels PRIVATE ${EXECUTORCH_ROOT}/..
                         ${EXECUTORCH_ROOT}/runtime/core/portable_type/c10
