@@ -215,6 +215,9 @@ def main() -> None:
     model, example_inputs, test_inputs, strict = MODELS[args.model]()
 
     if args.quantize:
+        # Side-effect import: registers quantized_decomposed::*.out schemas
+        # so executorch's ToOutVarPass can rewrite the AOT graph.
+        import executorch.backends.riscv.quantize  # noqa: F401
         from executorch.examples.xnnpack import MODEL_NAME_TO_OPTIONS, QuantType
         from executorch.examples.xnnpack.quantization.utils import quantize
 

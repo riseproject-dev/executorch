@@ -52,8 +52,18 @@ alignas(16) uint8_t temp_allocator_pool[1u << 22]; //   4 MiB
 alignas(16) uint8_t planned_memory_pool[1u << 26]; //  64 MiB
 
 constexpr size_t kMaxPlannedBuffers = 8;
-constexpr double kRtol = 0.01;
-constexpr double kAtol = 0.01;
+// fp32 tolerances are tight; quantized models need looser ones because the
+// .bpte's reference outputs were captured in fp32 and the runner produces
+// dequantized int8 results. Override per build via -DRISCV_BAREMETAL_RTOL=...
+// / -DRISCV_BAREMETAL_ATOL=... from CMake (run.sh sets these when --quantize).
+#ifndef RISCV_BAREMETAL_RTOL
+#define RISCV_BAREMETAL_RTOL 0.01
+#endif
+#ifndef RISCV_BAREMETAL_ATOL
+#define RISCV_BAREMETAL_ATOL 0.01
+#endif
+constexpr double kRtol = RISCV_BAREMETAL_RTOL;
+constexpr double kAtol = RISCV_BAREMETAL_ATOL;
 
 } // namespace
 

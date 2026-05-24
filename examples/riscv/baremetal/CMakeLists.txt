@@ -95,6 +95,17 @@ target_compile_options(
   executor_runner_baremetal PRIVATE -fno-exceptions -fno-rtti -fdata-sections
                                     -ffunction-sections
 )
+# Forward run.sh's --quantize tolerance overrides into the BundleIO check.
+if(DEFINED RISCV_BAREMETAL_RTOL)
+  target_compile_definitions(
+    executor_runner_baremetal PRIVATE RISCV_BAREMETAL_RTOL=${RISCV_BAREMETAL_RTOL}
+  )
+endif()
+if(DEFINED RISCV_BAREMETAL_ATOL)
+  target_compile_definitions(
+    executor_runner_baremetal PRIVATE RISCV_BAREMETAL_ATOL=${RISCV_BAREMETAL_ATOL}
+  )
+endif()
 # --specs=picolibc.specs / -nostartfiles / -march / -mabi all come from the
 # toolchain file; only the linker script (QEMU virt memory map) is target-
 # specific here.
@@ -122,3 +133,8 @@ endif()
 if(TARGET riscv_ops_lib)
   target_link_libraries(executor_runner_baremetal PRIVATE riscv_ops_lib)
 endif()
+# Force-link the quantized libs (target check returns false here even when
+# EXECUTORCH_BUILD_KERNELS_QUANTIZED=ON adds the subdirectory — looks like a
+# parent-scope visibility quirk when EXECUTORCH_ROOT is added EXCLUDE_FROM_ALL).
+# Refer to them by name; cmake errors loudly at link time if missing.
+target_link_libraries(executor_runner_baremetal PRIVATE quantized_ops_lib quantized_kernels)

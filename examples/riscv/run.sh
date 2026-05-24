@@ -145,6 +145,11 @@ fi
 if ${verbose_xnnpack}; then
     cmake_extra_args+=(-DEXECUTORCH_XNNPACK_LOG_LEVEL=4 -DEXECUTORCH_BUILD_RISCV_ETDUMP=ON)
 fi
+if ${quantize}; then
+    # The baremetal runner's BundleIO check uses these as compile-time defaults
+    # for verify_method_outputs(); fp32 path stays at 0.01/0.01.
+    cmake_extra_args+=(-DRISCV_BAREMETAL_RTOL=0.1 -DRISCV_BAREMETAL_ATOL=0.25)
+fi
 if [[ "${backend}" == "riscv" ]]; then
     cmake_extra_args+=(-DEXECUTORCH_BUILD_RISCV=ON -DEXECUTORCH_RISCV_KERNELS="${riscv_kernels}")
     # Baremetal has no hwprobe; the runtime feature struct is populated at compile
