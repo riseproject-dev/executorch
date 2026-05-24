@@ -278,6 +278,9 @@ _REWRITES = [
         torch.ops.riscv._clone_dim_order.default,
         _match_passthrough,
     ),
+    # _to_dim_order_copy has extra dtype/layout/device kwargs the riscv::
+    # registration doesn't carry — left on portable until those kwargs are
+    # propagated to a riscv equivalent.
     (_edge_or_aten("bmm.default"), torch.ops.riscv.bmm.default, _match_bmm),
     (_edge_or_aten("mm.default"), torch.ops.riscv.mm.default, _match_bmm),
     (_edge_or_aten("sub.Tensor"), torch.ops.riscv.sub.default, _match_add_or_mul),
