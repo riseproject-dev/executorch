@@ -262,6 +262,7 @@ def main() -> None:
         )
         for op_name in (
             "add",
+            "add_int8",
             "mul",
             "mul_Scalar",
             "hardtanh",

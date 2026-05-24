@@ -47,6 +47,49 @@ def _add_out_impl(self: torch.Tensor, other: torch.Tensor, *, out: torch.Tensor)
     return out
 
 
+# --- add_int8 (fused dq-add-q) --------------------------------------------
+
+lib.define(
+    "add_int8(Tensor a, Tensor b, int a_zero_point, float a_scale, "
+    "int b_zero_point, float b_scale, int out_zero_point, float out_scale, "
+    "int out_quant_min, int out_quant_max) -> Tensor"
+)
+lib.define(
+    "add_int8.out(Tensor a, Tensor b, int a_zero_point, float a_scale, "
+    "int b_zero_point, float b_scale, int out_zero_point, float out_scale, "
+    "int out_quant_min, int out_quant_max, *, Tensor(a!) out) -> Tensor(a!)"
+)
+
+
+def _add_int8_eager(
+    a, b, a_zero_point, a_scale, b_zero_point, b_scale,
+    out_zero_point, out_scale, out_quant_min, out_quant_max,
+):
+    """Same dq-add-q chain torch eager runs when PT2E expands the fused op."""
+    fa = (a.to(torch.float32) - a_zero_point) * a_scale
+    fb = (b.to(torch.float32) - b_zero_point) * b_scale
+    fc = fa + fb
+    qi = torch.round(fc / out_scale) + out_zero_point
+    qi = torch.clamp(qi, out_quant_min, out_quant_max)
+    return qi.to(torch.int8)
+
+
+@register_fake("riscv::add_int8")
+def _add_int8_fake(a, b, *args):
+    return torch.empty_like(a)
+
+
+@impl(lib, "add_int8", "CompositeExplicitAutograd")
+def _add_int8_impl(*args):
+    return _add_int8_eager(*args)
+
+
+@impl(lib, "add_int8.out", "CompositeExplicitAutograd")
+def _add_int8_out_impl(*args, out):
+    out.copy_(_add_int8_eager(*args))
+    return out
+
+
 # --- hardtanh --------------------------------------------------------------
 
 lib.define("hardtanh(Tensor self, Scalar min_val=-1, Scalar max_val=1) -> Tensor")

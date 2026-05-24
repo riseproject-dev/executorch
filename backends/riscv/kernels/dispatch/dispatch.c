@@ -148,4 +148,11 @@ RISCV_DISPATCH_RVV_THEN_SCALAR(
     mm_f32,
     (const float* a, const float* b, float* out, size_t M, size_t N, size_t K),
     (a, b, out, M, N, K))
+
+RISCV_DISPATCH_RVV_THEN_SCALAR(
+    add_int8,
+    (const int8_t* a, const int8_t* b, int8_t* out, size_t n,
+     int32_t a_zp, float a_sc, int32_t b_zp, float b_sc,
+     int32_t out_zp, float out_sc, int32_t out_qmin, int32_t out_qmax),
+    (a, b, out, n, a_zp, a_sc, b_zp, b_sc, out_zp, out_sc, out_qmin, out_qmax))
 /* clang-format on */

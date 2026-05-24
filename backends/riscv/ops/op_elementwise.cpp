@@ -139,6 +139,48 @@ Tensor& rsqrt_out(
   return out;
 }
 
+/* Fused PT2E dequantize-add-quantize: ConvertToRiscvPass matches the
+ * dq-add-q triplet in the lowered graph and emits this single node. The
+ * scalar args come straight from the matched dq/q ops; the C kernel does
+ * one int<->float cast per lane instead of two dq + one add + one q. */
+Tensor& add_int8_out(
+    KernelRuntimeContext& context,
+    const Tensor& a,
+    const Tensor& b,
+    int64_t a_zero_point,
+    double a_scale,
+    int64_t b_zero_point,
+    double b_scale,
+    int64_t out_zero_point,
+    double out_scale,
+    int64_t out_quant_min,
+    int64_t out_quant_max,
+    Tensor& out) {
+  (void)context;
+  ET_CHECK_MSG(
+      a.scalar_type() == ScalarType::Char &&
+          b.scalar_type() == ScalarType::Char &&
+          out.scalar_type() == ScalarType::Char,
+      "riscv::add_int8 requires int8 (Char) inputs and output");
+  ET_CHECK_MSG(
+      a.numel() == b.numel() && a.numel() == out.numel(),
+      "riscv::add_int8 numel mismatch");
+  riscv_add_int8(
+      a.const_data_ptr<int8_t>(),
+      b.const_data_ptr<int8_t>(),
+      out.mutable_data_ptr<int8_t>(),
+      static_cast<size_t>(a.numel()),
+      static_cast<int32_t>(a_zero_point),
+      static_cast<float>(a_scale),
+      static_cast<int32_t>(b_zero_point),
+      static_cast<float>(b_scale),
+      static_cast<int32_t>(out_zero_point),
+      static_cast<float>(out_scale),
+      static_cast<int32_t>(out_quant_min),
+      static_cast<int32_t>(out_quant_max));
+  return out;
+}
+
 Tensor& mul_out(
     KernelRuntimeContext& context,
     const Tensor& self,

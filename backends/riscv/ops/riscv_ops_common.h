@@ -165,6 +165,28 @@ RISCV_DECLARE_KERNEL(
     mm_f32,
     (const float* a, const float* b, float* out, size_t M, size_t N, size_t K))
 
+/* Fused requantizing int8 add: same semantics as the PT2E
+ * dequantize_per_tensor -> add -> quantize_per_tensor triplet, but stays
+ * in int8 on the hot path (one int<->float cast per lane instead of two
+ * dq + one add + one q). Replaces the chain via ConvertToRiscvPass.
+ *
+ * Both inputs and the output use per-tensor affine quantization with
+ * scale and zero_point; out is clamped to [out_quant_min, out_quant_max]. */
+RISCV_DECLARE_KERNEL(
+    add_int8,
+    (const int8_t* a,
+     const int8_t* b,
+     int8_t* out,
+     size_t n,
+     int32_t a_zero_point,
+     float a_scale,
+     int32_t b_zero_point,
+     float b_scale,
+     int32_t out_zero_point,
+     float out_scale,
+     int32_t out_quant_min,
+     int32_t out_quant_max))
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

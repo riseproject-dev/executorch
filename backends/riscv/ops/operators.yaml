@@ -13,6 +13,12 @@
     - arg_meta: null
       kernel_name: riscv::add_out
 
+- func: riscv::add_int8.out(Tensor a, Tensor b, int a_zero_point, float a_scale, int b_zero_point, float b_scale, int out_zero_point, float out_scale, int out_quant_min, int out_quant_max, *, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+  kernels:
+    - arg_meta: null
+      kernel_name: riscv::add_int8_out
+
 - func: riscv::hardtanh.out(Tensor self, Scalar min_val=-1, Scalar max_val=1, *, Tensor(a!) out) -> Tensor(a!)
   variants: function
   kernels:

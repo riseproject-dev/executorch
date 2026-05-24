@@ -302,10 +302,82 @@ _REWRITES = [
 ]
 
 
+_DQ_TARGETS = {
+    exir_ops.edge.quantized_decomposed.dequantize_per_tensor.default,
+    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+}
+_Q_TARGETS = {
+    exir_ops.edge.quantized_decomposed.quantize_per_tensor.default,
+    torch.ops.quantized_decomposed.quantize_per_tensor.default,
+}
+_ADD_TARGETS = {
+    exir_ops.edge.aten.add.Tensor,
+    torch.ops.aten.add.Tensor,
+    torch.ops.riscv.add.default,
+}
+
+
+def _try_fuse_quantized_add(node: torch.fx.Node, graph: torch.fx.Graph) -> bool:
+    """If `node` is `quantize_per_tensor(add(dq(a), dq(b)))` and nothing else
+    consumes the intermediate fp32 add or the two dq nodes, replace the whole
+    triplet with a single `riscv::add_int8.default` and erase the dead chain.
+
+    Returns True on a successful rewrite. Idempotent — runs after the
+    elementwise pass leaves `riscv.add.default` in place.
+    """
+    if node.target not in _Q_TARGETS:
+        return False
+    if not node.args or not isinstance(node.args[0], torch.fx.Node):
+        return False
+    add_node = node.args[0]
+    if add_node.target not in _ADD_TARGETS:
+        return False
+    if len(add_node.users) != 1:
+        return False  # the fp32 add is consumed by something else; don't fuse
+    if len(add_node.args) < 2:
+        return False
+    dq_a, dq_b = add_node.args[0], add_node.args[1]
+    if not isinstance(dq_a, torch.fx.Node) or not isinstance(dq_b, torch.fx.Node):
+        return False
+    if dq_a.target not in _DQ_TARGETS or dq_b.target not in _DQ_TARGETS:
+        return False
+    # Each dq should feed only the add — otherwise removing it later breaks others.
+    if len(dq_a.users) != 1 or len(dq_b.users) != 1:
+        return False
+
+    # Pull the affine params from the dq/q args. Schema:
+    # dq(input, scale, zp, qmin, qmax, dtype, *, out_dtype=None)
+    # q (input, scale, zp, qmin, qmax, dtype)
+    a_in, a_scale, a_zp, _a_qmin, _a_qmax, _a_dtype = dq_a.args[:6]
+    b_in, b_scale, b_zp, _b_qmin, _b_qmax, _b_dtype = dq_b.args[:6]
+    _q_in, out_scale, out_zp, out_qmin, out_qmax, _out_dtype = node.args[:6]
+
+    with graph.inserting_before(node):
+        fused = graph.call_function(
+            torch.ops.riscv.add_int8.default,
+            (a_in, b_in, a_zp, a_scale, b_zp, b_scale,
+             out_zp, out_scale, out_qmin, out_qmax),
+        )
+    # Propagate fake-tensor meta from the original q output so downstream
+    # passes / verifiers see the same shape + dtype.
+    fused.meta = dict(node.meta)
+    node.replace_all_uses_with(fused)
+    graph.erase_node(node)
+    graph.erase_node(add_node)
+    graph.erase_node(dq_a)
+    graph.erase_node(dq_b)
+    return True
+
+
 class ConvertToRiscvPass(ExportPass):
     def call(self, graph_module: torch.fx.GraphModule) -> PassResult:
         modified = False
         graph = graph_module.graph
+        # Pass 1: fuse dq-add-q triplets. Run before the per-node loop below
+        # so the still-aten add gets folded into riscv::add_int8 in one shot.
+        for node in list(graph.nodes):
+            if _try_fuse_quantized_add(node, graph):
+                modified = True
         for node in list(graph.nodes):
             if node.op != "call_function":
                 continue
