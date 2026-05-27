@@ -176,7 +176,7 @@ def main() -> None:
         default="portable",
         help="Which backend to lower to: 'portable' runs everything on the "
         "portable kernels, 'xnnpack' adds the XNNPACK partitioner, 'riscv' "
-        "runs the ConvertToRiscvPass so supported ops dispatch to the "
+        "runs the ConvertToRISCVPass so supported ops dispatch to the "
         "kernel-library backend (default: portable)",
     )
     parser.add_argument(
@@ -253,7 +253,7 @@ def main() -> None:
         import executorch.backends.riscv.ops.operators  # noqa: F401
 
         compile_config = compile_config or EdgeCompileConfig()
-        # Whitelist every riscv:: op + .out variant that ConvertToRiscvPass
+        # Whitelist every riscv:: op + .out variant that ConvertToRISCVPass
         # emits; the edge verifier rejects anything outside its core-aten
         # allowlist. Keep this in sync with backends/riscv/ops/operators.py.
         ns = torch.ops.riscv
@@ -304,9 +304,9 @@ def main() -> None:
 
     transform_passes = None
     if args.backend == "riscv":
-        from executorch.backends.riscv import ConvertToRiscvPass
+        from executorch.backends.riscv import ConvertToRISCVPass
 
-        transform_passes = [ConvertToRiscvPass()]
+        transform_passes = [ConvertToRISCVPass()]
 
     edge = to_edge_transform_and_lower(
         exported,

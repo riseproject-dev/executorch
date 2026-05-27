@@ -37,7 +37,7 @@ Options:
   --backend=<NAME>        AOT backend (default: ${backend}):
                            - 'portable': portable kernels only
                            - 'xnnpack':  XNNPACK delegate (linux only)
-                           - 'riscv':    kernel-library backend; ConvertToRiscvPass
+                           - 'riscv':    kernel-library backend; ConvertToRISCVPass
                                          rewrites supported ops to riscv::* at AOT,
                                          runtime picks scalar/RVV at dispatch time
   --os=<NAME>             Target OS (default: ${os}):
